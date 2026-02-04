@@ -10,7 +10,5 @@ Makefile
 *.dylib
 *.exe
 *.out
-tests/*.csv
-tests/*.columnar
 .vscode/
 compile_commands.json
