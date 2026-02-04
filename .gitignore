@@ -1,0 +1,16 @@
+build/
+.cache/
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.out
+tests/*.csv
+tests/*.columnar
+.vscode/
+compile_commands.json
