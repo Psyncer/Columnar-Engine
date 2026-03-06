@@ -8,7 +8,7 @@
 #include <iostream>
 
 void test_writing(const std::string& csv_schema, const std::string& csv_data,
-                 const std::string& output_file) {
+                  const std::string& output_file) {
 
     auto schema = columnar::CsvReader::parse_schema_file(csv_schema);
 
@@ -33,7 +33,7 @@ void test_writing(const std::string& csv_schema, const std::string& csv_data,
 }
 
 void test_reading(const std::string& reconstructed_schema, const std::string& reconstructed_data,
-                 const std::string& output_file) {
+                  const std::string& output_file) {
 
     auto reader = columnar::ColumnarReader::open_columnar_to_read(output_file);
 

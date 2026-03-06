@@ -11,10 +11,35 @@
 
 namespace columnar {
 
-/*
-Такая реализация хранилища колонок при конвертации временная, буду менять.
-*/
 using ColumnData = std::variant<std::vector<std::string>, std::vector<int64_t>>;
+
+struct BatchColumn {
+    ColumnData data;
+
+    template <typename T>
+    std::vector<T>& get() {
+        return std::get<std::vector<T>>(data);
+    }
+
+    template <typename T>
+    const std::vector<T>& get() const {
+        return std::get<std::vector<T>>(data);
+    }
+
+    template <typename T>
+    void append(const T& value) {
+        get<T>().push_back(value);
+    }
+
+    size_t size() const {
+        return std::visit(
+            [](const auto& vec) {
+                return vec.size();
+            },
+            data);
+    }
+};
+
 
 class Batch {
 public:
@@ -22,9 +47,9 @@ public:
 
     void add_row(const std::vector<std::string>& row);
 
-    void add_column(const ColumnData& column);
+    void add_column(const BatchColumn& column);
 
-    const ColumnData& get_column(size_t idx) const;
+    const BatchColumn& get_column(size_t idx) const;
 
     const Schema& schema() const;
 
@@ -38,7 +63,7 @@ public:
 
 private:
     const Schema& schema_;
-    std::vector<ColumnData> columns_;
+    std::vector<BatchColumn> columns_;
     size_t capacity_;
     size_t row_count_;
 

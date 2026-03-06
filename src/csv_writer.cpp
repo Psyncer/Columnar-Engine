@@ -21,14 +21,14 @@ CsvWriter CsvWriter::open_csv_to_write(const std::string& path, const Schema& sc
 void CsvWriter::write_batch(const Batch& batch) {
     for (size_t row = 0; row < batch.get_row_count(); ++row) {
         for (size_t col = 0; col < schema_.get_column_count(); ++col) {
-            const ColumnData& column_data = batch.get_column(col);
+            const BatchColumn& column_data = batch.get_column(col);
             DataType type = schema_.get_column(col).type_;
 
             if (type == DataType::int64) {
-                const auto& column = std::get<std::vector<int64_t>>(column_data);
+                const auto& column = column_data.get<int64_t>();
                 file_ << column[row];
             } else if (type == DataType::string) {
-                const auto& column = std::get<std::vector<std::string>>(column_data);
+                const auto& column = column_data.get<std::string>();
                 file_ << column[row];
             }
 

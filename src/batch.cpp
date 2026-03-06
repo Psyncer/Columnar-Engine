@@ -18,11 +18,11 @@ Batch::Batch(const Schema& schema, size_t capacity)
 
         if (column.type_ == DataType::int64) {
             std::vector<int64_t> vec;
-            vec.reserve(capacity);
+            vec.reserve(capacity_);
             columns_.emplace_back(std::move(vec));
         } else if (column.type_ == DataType::string) {
             std::vector<std::string> vec;
-            vec.reserve(capacity);
+            vec.reserve(capacity_);
             columns_.emplace_back(std::move(vec));
         }
     }
@@ -34,21 +34,21 @@ void Batch::add_row(const std::vector<std::string>& row) {
 
         if (type == DataType::int64) {
             auto value = parse_int64(row[i]);
-            std::get<std::vector<int64_t>>(columns_[i]).push_back(value);  // может выкинуть
+            columns_[i].append<int64_t>(value);  // может выкинуть
         } else if (type == DataType::string) {
-            std::get<std::vector<std::string>>(columns_[i]).push_back(row[i]);  // может выкинуть
+            columns_[i].append<std::string>(row[i]);  // может выкинуть
         }
     }
     row_count_++;
 }
 
-void Batch::add_column(const ColumnData& column) {
+void Batch::add_column(const BatchColumn& column) {
     columns_.push_back(column);
     row_count_ = capacity();
 }
 
-const ColumnData& Batch::get_column(size_t idx) const {
-    return std::cref(columns_[idx]);
+const BatchColumn& Batch::get_column(size_t idx) const {
+    return columns_[idx];
 }
 
 const Schema& Batch::schema() const {
@@ -69,13 +69,12 @@ bool Batch::is_full() const {
 
 void Batch::clear() {
     row_count_ = 0;
-
     for (auto& column : columns_) {
         std::visit(
             [](auto& vec) {
                 vec.clear();
             },
-            column);
+            column.data);
     }
 }
 

@@ -23,7 +23,8 @@ void ColumnarWriter::write_int64(int64_t value) {
     offset_ += 8;
 }
 
-ColumnarWriter ColumnarWriter::open_columnar_to_write(const std::string& path, const Schema& schema) {
+ColumnarWriter ColumnarWriter::open_columnar_to_write(const std::string& path,
+                                                      const Schema& schema) {
     std::ofstream file(path, std::ios::binary);
     ColumnarWriter writer(std::move(file), schema);
 
@@ -37,18 +38,18 @@ void ColumnarWriter::write_batch(const Batch& batch) {
         chunk.column_index = i;
         chunk.num_rows = batch.get_row_count();
 
-        const ColumnData& column_data = batch.get_column(i);
+        const BatchColumn& column_data = batch.get_column(i);
         DataType type = schema_.get_column(i).type_;
 
         if (type == DataType::int64) {
-            const auto& column = std::get<std::vector<int64_t>>(column_data);
+            const auto& column = column_data.get<int64_t>();
 
             for (const auto& value : column) {
                 write_int64(value);
             }
 
         } else if (type == DataType::string) {
-            const auto& column = std::get<std::vector<std::string>>(column_data);
+            const auto& column = column_data.get<std::string>();
 
             for (const auto& str : column) {
                 int64_t len = static_cast<int64_t>(str.size());
@@ -71,7 +72,7 @@ void ColumnarWriter::write_metadata() {
         write_int64(len);
         file_.write(column.name_.data(), static_cast<std::streamsize>(len));
         offset_ += len;
-        int64_t type = static_cast<int64_t>(column.type_);  //  enum
+        int64_t type = static_cast<int64_t>(column.type_);  // enum
         write_int64(type);
     }
     int64_t num_chunks = static_cast<int64_t>(chunk_info_.size());
