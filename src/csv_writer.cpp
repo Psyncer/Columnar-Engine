@@ -11,6 +11,28 @@
 
 namespace columnar {
 
+std::string escape_csv_field(const std::string& field) {
+    bool needs_quotes = field.find(',') != std::string::npos ||
+                        field.find('"') != std::string::npos ||
+                        field.find('\n') != std::string::npos;
+
+    if (!needs_quotes) {
+        return field;
+    }
+
+    std::string result = "\"";
+    for (char c : field) {
+        if (c == '"') {
+            result += "\"\"";
+        } else {
+            result += c;
+        }
+    }
+    result += '"';
+
+    return result;
+}
+
 CsvWriter CsvWriter::open_csv_to_write(const std::string& path, const Schema& schema) {
     std::ofstream file(path);
     CsvWriter writer(std::move(file), schema);
@@ -29,7 +51,7 @@ void CsvWriter::write_batch(const Batch& batch) {
                 file_ << column[row];
             } else if (type == DataType::string) {
                 const auto& column = column_data.get<std::string>();
-                file_ << column[row];
+                file_ << escape_csv_field(column[row]);
             }
 
             if (col < schema_.get_column_count() - 1) {

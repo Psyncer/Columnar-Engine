@@ -66,23 +66,28 @@ void ColumnarWriter::write_batch(const Batch& batch) {
 void ColumnarWriter::write_metadata() {
     int64_t metastart = offset_;
     write_int64(static_cast<int64_t>(schema_.get_column_count()));
+
     for (size_t i = 0; i < schema_.get_column_count(); ++i) {
         auto column = schema_.get_column(i);
         int64_t len = static_cast<int64_t>(column.name_.size());
+
         write_int64(len);
         file_.write(column.name_.data(), static_cast<std::streamsize>(len));
         offset_ += len;
         int64_t type = static_cast<int64_t>(column.type_);  // enum
         write_int64(type);
     }
+
     int64_t num_chunks = static_cast<int64_t>(chunk_info_.size());
     write_int64(num_chunks);
+
     for (size_t i = 0; i < static_cast<size_t>(num_chunks); ++i) {
         write_int64(static_cast<int64_t>(chunk_info_[i].column_index));
         write_int64(static_cast<int64_t>(chunk_info_[i].offset));
         write_int64(static_cast<int64_t>(chunk_info_[i].size_in_bytes));
         write_int64(static_cast<int64_t>(chunk_info_[i].num_rows));
     }
+    
     int64_t metasize = offset_ - metastart;
     write_int64(metasize);
 }

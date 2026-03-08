@@ -47,8 +47,6 @@ public:
 
     void add_row(const std::vector<std::string>& row);
 
-    void add_column(const BatchColumn& column);
-
     const BatchColumn& get_column(size_t idx) const;
 
     const Schema& schema() const;

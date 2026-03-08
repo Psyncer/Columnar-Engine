@@ -42,11 +42,6 @@ void Batch::add_row(const std::vector<std::string>& row) {
     row_count_++;
 }
 
-void Batch::add_column(const BatchColumn& column) {
-    columns_.push_back(column);
-    row_count_ = capacity();
-}
-
 const BatchColumn& Batch::get_column(size_t idx) const {
     return columns_[idx];
 }
