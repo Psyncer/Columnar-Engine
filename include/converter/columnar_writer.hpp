@@ -19,7 +19,7 @@ private:
     std::vector<ChunkInfo> chunk_info_{};
     const Schema& schema_{};
     int64_t offset_{};
-    
+
 public:
     static Expected<ColumnarWriter> open_output(const std::string& path_to_output,
                                                 const Schema& schema);

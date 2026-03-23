@@ -82,7 +82,8 @@ Expected<std::vector<std::string>> CsvReader::parse_row(const Schema& schema) {
                     and tokens.size() != schema.get_column_count()
                     does not see the problem
                     */
-                    if (data_file_.peek() != '\n' && data_file_.peek() != ',' && !data_file_.eof()) {
+                    if (data_file_.peek() != '\n' && data_file_.peek() != ',' &&
+                        !data_file_.eof()) {
                         return std::unexpected(parse_error::invalid_data_format);
                     }
                 }

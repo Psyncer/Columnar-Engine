@@ -8,18 +8,18 @@
 namespace columnar {
 
 enum class parse_error : int64_t {
-    file_not_found = 0,
-    invalid_schema_format = 1,
-    unsupported_type = 2,
-    empty_schema = 3,
-    duplicate_column = 4,
-    full_batch = 5,
-    invalid_row_size = 6,
-    index_out_of_range = 7,
-    invalid_data_format = 8,
-    not_implemented = 9,
-    bad_field = 10,
-    bad_variant_access = 11,
+    file_not_found          = 0,
+    invalid_schema_format   = 1,
+    unsupported_type        = 2,
+    empty_schema            = 3,
+    duplicate_column        = 4,
+    full_batch              = 5,
+    invalid_row_size        = 6,
+    index_out_of_range      = 7,
+    invalid_data_format     = 8,
+    not_implemented         = 9,
+    bad_field               = 10,
+    bad_variant_access      = 11,
 };
 
 inline const char* to_string(parse_error type) {

@@ -3,9 +3,9 @@
 #include "data_type.hpp"
 #include "parse_error.hpp"
 
+#include <expected>
 #include <string>
 #include <vector>
-#include <expected>
 
 namespace columnar {
 
@@ -20,7 +20,6 @@ public:
 
     Expected<const SchemaColumn&> get_column(size_t idx) const;
 
-    
     void add_column(const std::string& name, DataType type);
 
 private:

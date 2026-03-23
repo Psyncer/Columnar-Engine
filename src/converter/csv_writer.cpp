@@ -50,8 +50,7 @@ void CsvWriter::write_batch(const Batch& batch) {
 void CsvWriter::write_schema(const std::string& path) {
     std::ofstream file(path);
     for (size_t i = 0; i < schema_.get_column_count(); ++i) {
-        file << schema_.get_column(i)->name_ << "," << schema_.get_column(i)->type_
-             << '\n';
+        file << schema_.get_column(i)->name_ << "," << schema_.get_column(i)->type_ << '\n';
     }
 }
 

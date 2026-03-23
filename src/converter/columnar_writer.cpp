@@ -70,7 +70,7 @@ Expected<void> ColumnarWriter::write_batch(const Batch& batch) {
         chunk.size_in_bytes = offset_ - chunk.offset;
         chunk_info_.push_back(chunk);
     }
-    
+
     return {};
 }
 

@@ -69,8 +69,9 @@ columnar::Expected<void> test_writing(const std::string& csv_schema, const std::
     return {};
 }
 
-columnar::Expected<void> test_reading(const std::string& reconstructed_schema, const std::string& reconstructed_data,
-                  const std::string& output_file) {
+columnar::Expected<void> test_reading(const std::string& reconstructed_schema,
+                                      const std::string& reconstructed_data,
+                                      const std::string& output_file) {
 
     auto reader = columnar::ColumnarReader::open_output(output_file);
     if (!reader.has_value()) {
@@ -78,17 +79,15 @@ columnar::Expected<void> test_reading(const std::string& reconstructed_schema, c
     }
 
     const columnar::Schema& schema = reader->schema();
-  
-    auto schema_writer =
-        columnar::CsvWriter::open_csv_to_write(reconstructed_schema, schema);
+
+    auto schema_writer = columnar::CsvWriter::open_csv_to_write(reconstructed_schema, schema);
     if (!schema_writer.has_value()) {
         return std::unexpected(schema_writer.error());
     }
 
     schema_writer->write_schema(reconstructed_schema);
 
-    auto data_writer =
-        columnar::CsvWriter::open_csv_to_write(reconstructed_data, schema);
+    auto data_writer = columnar::CsvWriter::open_csv_to_write(reconstructed_data, schema);
     if (!data_writer.has_value()) {
         return std::unexpected(data_writer.error());
     }
@@ -120,7 +119,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "Usage: " << argv[0] << " <schema.csv>" << " <data.csv>" << std::endl;
         return 1;
     }
-    
+
     // review the namings everywhere
 
     std::string csv_schema = argv[1];

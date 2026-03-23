@@ -15,7 +15,7 @@ Expected<const SchemaColumn&> Schema::get_column(size_t idx) const {
     if (idx >= columns_.size()) {
         return std::unexpected(parse_error::index_out_of_range);
     }
-    
+
     return columns_[idx];
 }
 
