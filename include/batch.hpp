@@ -1,71 +1,71 @@
 #pragma once
 
-// #include "parse_error.hpp"
+#include "parse_error.hpp"
 #include "schema.hpp"
 
 #include <cstdint>
-// #include <expected>
+#include <expected>
 #include <string>
 #include <variant>
 #include <vector>
 
 namespace columnar {
 
+// add remaining types and then try the buffer
 using ColumnData = std::variant<std::vector<std::string>, std::vector<int64_t>>;
 
 struct BatchColumn {
-    ColumnData data;
+    ColumnData data{};
 
     template <typename T>
-    std::vector<T>& get() {
-        return std::get<std::vector<T>>(data);
+    Expected<std::vector<T>&> get() {
+        try {
+            return std::get<std::vector<T>>(data);
+        } catch (const std::exception& e) {
+            return std::unexpected(parse_error::bad_variant_access);
+        }
     }
 
     template <typename T>
-    const std::vector<T>& get() const {
-        return std::get<std::vector<T>>(data);
+    Expected<const std::vector<T>&> get() const {
+        try {
+            return std::get<std::vector<T>>(data);
+        } catch (const std::exception& e) {
+            return std::unexpected(parse_error::bad_variant_access);
+        }
     }
 
     template <typename T>
-    void append(const T& value) {
-        get<T>().push_back(value);
-    }
+    Expected<void> append(const T& value) {
+        try {
+            std::get<std::vector<T>>(data).push_back(value);
+        } catch (const std::exception& e) {
+            return std::unexpected(parse_error::bad_variant_access);
+        }
 
-    size_t size() const {
-        return std::visit(
-            [](const auto& vec) {
-                return vec.size();
-            },
-            data);
+        return {};
     }
 };
 
-
 class Batch {
+private:
+    const Schema& schema_{};
+    std::vector<BatchColumn> columns_{};
+    size_t capacity_{};
+    size_t row_count_{};
+
 public:
     Batch(const Schema& schema, size_t capacity = 1000);
 
-    void add_row(const std::vector<std::string>& row);
+    Expected<void> add_row(const std::vector<std::string>& row);
 
-    const BatchColumn& get_column(size_t idx) const;
-
-    const Schema& schema() const;
+    Expected<const BatchColumn&> get_column(size_t idx) const;
 
     size_t get_row_count() const;
-
-    size_t capacity() const;
 
     bool is_full() const;
 
     void clear();
-
-private:
-    const Schema& schema_;
-    std::vector<BatchColumn> columns_;
-    size_t capacity_;
-    size_t row_count_;
-
-    static int64_t parse_int64(const std::string& token);
 };
 
 }  // namespace columnar

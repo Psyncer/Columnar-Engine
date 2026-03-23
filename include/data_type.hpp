@@ -9,8 +9,6 @@ enum struct DataType : int64_t {
     string  = 1,
 };
 
-// для ручных тестов (потом убрать):
-//
 inline const char* to_string(DataType type) {
     switch (type) {
     case DataType::int64:
@@ -25,6 +23,5 @@ inline const char* to_string(DataType type) {
 inline std::ostream& operator<<(std::ostream& os, DataType type) {
     return os << to_string(type);
 }
-//
 
 }  // namespace columnar

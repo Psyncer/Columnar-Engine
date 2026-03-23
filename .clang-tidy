@@ -17,7 +17,9 @@ Checks: >
   -cppcoreguidelines-pro-type-reinterpret-cast,
   -cppcoreguidelines-init-variables,
   -cppcoreguidelines-pro-type-member-init,
-  -bugprone-easily-swappable-parameters
+  -bugprone-easily-swappable-parameters,
+  -readability-function-cognitive-complexity,
+  -readability-redundant-member-init
 
 CheckOptions:
   - key: readability-identifier-naming.ClassMemberSuffix
