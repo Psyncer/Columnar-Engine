@@ -19,7 +19,9 @@ Checks: >
   -cppcoreguidelines-pro-type-member-init,
   -bugprone-easily-swappable-parameters,
   -readability-function-cognitive-complexity,
-  -readability-redundant-member-init
+  -readability-redundant-member-init,
+  -cppcoreguidelines-owning-memory,
+  -readability-simplify-boolean-expr
 
 CheckOptions:
   - key: readability-identifier-naming.ClassMemberSuffix

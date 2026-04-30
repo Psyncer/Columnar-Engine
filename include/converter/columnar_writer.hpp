@@ -1,37 +1,47 @@
 #pragma once
 
-#include "batch.hpp"
-#include "chunk_info.hpp"
-#include "parse_error.hpp"
-#include "schema.hpp"
-
+#include <bit>
 #include <cstdint>
-#include <expected>
 #include <fstream>
 #include <string>
 #include <vector>
+
+#include "batch.hpp"
+#include "chunk_info.hpp"
+#include "schema.hpp"
 
 namespace columnar {
 
 class ColumnarWriter {
 private:
-    std::ofstream output_file_{};
-    std::vector<ChunkInfo> chunk_info_{};
-    const Schema& schema_{};
-    int64_t offset_{};
+    std::ofstream output_file_;
+    std::vector<ChunkInfo> chunk_info_;
+    const Schema& schema_;
+    int64_t offset_ = 0;
 
 public:
-    static Expected<ColumnarWriter> open_output(const std::string& path_to_output,
-                                                const Schema& schema);
+    static ColumnarWriter open_output(const std::string& path_to_output, const Schema& schema);
 
-    Expected<void> write_batch(const Batch& batch);
+    void write_batch(const Batch& batch);  // throws
 
-    Expected<void> write_metadata();
+    void write_metadata();
 
 private:
     ColumnarWriter(std::ofstream&& file, const Schema& schema);
 
-    void write_int64(int64_t value);
+    template <typename T>
+    void write_int(T value) {
+        if (std::endian::native == std::endian::big) {
+            value = std::byteswap(value);
+        }
+
+        output_file_.write(reinterpret_cast<char*>(&value), sizeof(value));  // throws
+        offset_ += sizeof(value);
+    }
+
+    void write_string(const std::string& str, int64_t len);  // throws
+
+    void write_char(char ch);  // throws
 };
 
 }  // namespace columnar

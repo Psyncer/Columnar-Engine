@@ -1,27 +1,25 @@
 #pragma once
 
-#include "parse_error.hpp"
-#include "schema.hpp"
-
-#include <expected>
 #include <fstream>
 #include <string>
+
+#include "schema.hpp"
 
 namespace columnar {
 
 class CsvReader {
 private:
-    std::ifstream data_file_{};
-    std::ifstream schema_file_{};
+    std::ifstream data_file_;
+    std::ifstream schema_file_;
     char delimiter_ = ',';
 
 public:
-    static Expected<CsvReader> open_csv(const std::string& path_to_data,
-                                        const std::string& path_to_schema, char delimiter = ',');
+    static CsvReader open_csv(const std::string& path_to_data, const std::string& path_to_schema,
+                              char delimiter = ',');
 
-    Expected<Schema> parse_schema();
+    Schema parse_schema();  // throws
 
-    Expected<std::vector<std::string>> parse_row(const Schema& schema);
+    std::vector<std::string> parse_row(const Schema& schema);  // throws
 
     bool eof() const;
 

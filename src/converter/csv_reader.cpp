@@ -1,26 +1,22 @@
+#include <fstream>
+#include <ios>
+#include <iostream>
+#include <string>
+
+#include "assert.hpp"
 #include "csv_reader.hpp"
-#include "parse_error.hpp"
 #include "parsing.hpp"
 #include "schema.hpp"
 
-#include <expected>
-#include <fstream>
-#include <ios>
-#include <string>
-
 namespace columnar {
 
-Expected<CsvReader> CsvReader::open_csv(const std::string& path_to_data,
-                                        const std::string& path_to_schema, char delimiter) {
+CsvReader CsvReader::open_csv(const std::string& path_to_data, const std::string& path_to_schema,
+                              char delimiter) {
     std::ifstream data_file(path_to_data, std::ios::binary);
-    if (!data_file.is_open()) {
-        return std::unexpected(parse_error::file_not_found);
-    }
+    ASS(data_file.is_open(), "file not found");  // or ask for input again?
 
     std::ifstream schema_file(path_to_schema, std::ios::binary);
-    if (!schema_file.is_open()) {
-        return std::unexpected(parse_error::file_not_found);
-    }
+    ASS(schema_file.is_open(), "file not found");  // or ask for input again?
 
     CsvReader csv_reader(std::move(data_file), std::move(schema_file), delimiter);
 
@@ -32,31 +28,23 @@ CsvReader::CsvReader(std::ifstream&& data_file, std::ifstream&& schema_file, cha
       delimiter_(delimiter) {
 }
 
-Expected<Schema> CsvReader::parse_schema() {
+Schema CsvReader::parse_schema() {
     std::string line;
     Schema schema;
 
     while (std::getline(schema_file_, line, '\n')) {
-        auto tokens = split(line, delimiter_);
-        if (!tokens.has_value()) {
-            return std::unexpected(tokens.error());
-        }
+        std::vector<std::string> tokens = split(line, delimiter_);
+        std::string name = tokens[0];
+        std::string type = tokens[1];
 
-        std::string name = (*tokens)[0];
-        std::string type = (*tokens)[1];
-
-        auto data_type = get_data_type(type);
-        if (!data_type.has_value()) {
-            return std::unexpected(data_type.error());
-        }
-
-        schema.add_column(name, *data_type);
+        Type data_type = get_data_type(type);
+        schema.add_column(name, data_type);
     }
 
     return schema;
 }
 
-Expected<std::vector<std::string>> CsvReader::parse_row(const Schema& schema) {
+std::vector<std::string> CsvReader::parse_row(const Schema& schema) {
     std::vector<std::string> tokens;
     bool in_quotes = false;
     std::string current;
@@ -82,10 +70,8 @@ Expected<std::vector<std::string>> CsvReader::parse_row(const Schema& schema) {
                     and tokens.size() != schema.get_column_count()
                     does not see the problem
                     */
-                    if (data_file_.peek() != '\n' && data_file_.peek() != ',' &&
-                        !data_file_.eof()) {
-                        return std::unexpected(parse_error::invalid_data_format);
-                    }
+                    ASS(data_file_.peek() == '\n' || data_file_.peek() == ',' || !data_file_.eof(),
+                        "invalid data format");
                 }
             } else {
                 current += c;
@@ -98,9 +84,7 @@ Expected<std::vector<std::string>> CsvReader::parse_row(const Schema& schema) {
                 current.clear();
             } else if (c == '\n') {
                 tokens.push_back(current);
-                if (tokens.size() != schema.get_column_count()) {
-                    return std::unexpected(parse_error::invalid_data_format);
-                }
+                ASS(tokens.size() == schema.get_column_count(), "invalid data format");
                 return tokens;
             } else if (c == '\r') {
                 // skip to handle \r\n
@@ -114,9 +98,7 @@ Expected<std::vector<std::string>> CsvReader::parse_row(const Schema& schema) {
         tokens.push_back(current);
     }
 
-    if (tokens.size() != schema.get_column_count() && tokens.size() != 0) {
-        return std::unexpected(parse_error::invalid_data_format);
-    }
+    ASS(tokens.size() == schema.get_column_count() || tokens.size() == 0, "invalid data format");
 
     return tokens;
 }

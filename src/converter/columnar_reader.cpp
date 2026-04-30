@@ -1,29 +1,22 @@
-#include "columnar_reader.hpp"
+#include <fstream>
+#include <iostream>
+#include <string>
+
+#include "assert.hpp"
 #include "batch.hpp"
 #include "chunk_info.hpp"
+#include "columnar_reader.hpp"
 #include "data_type.hpp"
-#include "parse_error.hpp"
 #include "schema.hpp"
-
-#include <bit>
-#include <expected>
-#include <fstream>
-#include <string>
 
 namespace columnar {
 
-Expected<ColumnarReader> ColumnarReader::open_output(const std::string& path) {
+ColumnarReader ColumnarReader::open_output(const std::string& path) {
     std::ifstream output_file(path, std::ios::binary);
-    if (!output_file.is_open()) {
-        return std::unexpected(parse_error::file_not_found);
-    }
+    ASS(output_file.is_open(), "file not found");
 
     ColumnarReader reader = ColumnarReader(std::move(output_file));
-
-    auto res = reader.read_metadata();
-    if (!res.has_value()) {
-        return std::unexpected(res.error());
-    }
+    reader.read_metadata();
 
     return reader;
 }
@@ -31,59 +24,71 @@ Expected<ColumnarReader> ColumnarReader::open_output(const std::string& path) {
 ColumnarReader::ColumnarReader(std::ifstream&& output_file) : output_file_(std::move(output_file)) {
 }
 
-Expected<void> ColumnarReader::read_metadata() {
+void ColumnarReader::read_metadata() {
     output_file_.seekg(-8, std::ios::end);
-    int64_t metastart = read_int64();
+    int64_t metastart = read_int<int64_t>();
 
     output_file_.seekg(-(metastart + 8), std::ios::end);
-    column_count_ = read_int64();
+    column_count_ = read_int<int32_t>();
 
     for (int i = 0; i < column_count_; ++i) {
         std::string name;
-        int64_t s = read_int64();
+        int32_t s = read_int<int32_t>();
 
         name.resize(static_cast<size_t>(s));
         output_file_.read(name.data(), s);
 
-        int64_t t = read_int64();
-        DataType type;
+        int16_t t = read_int<int16_t>();
+        Type type;
         switch (t) {
         case 0:
-            type = DataType::int64;
+            type = Type::Int16;
             break;
         case 1:
-            type = DataType::string;
+            type = Type::Int32;
+            break;
+        case 2:
+            type = Type::Int64;
+            break;
+        case 3:
+            type = Type::String;
+            break;
+        case 4:
+            type = Type::Date;
+            break;
+        case 5:
+            type = Type::Timestamp;
+            break;
+        case 6:
+            type = Type::Char;
             break;
         default:
-            return std::unexpected(parse_error::not_implemented);
+            ASS(false, "type not implemented");
         }
 
         schema_.add_column(name, type);
     }
 
-    int64_t num_chunks = read_int64();
+    int64_t num_chunks = read_int<int64_t>();
     chunks_.reserve(static_cast<size_t>(num_chunks));
 
     for (int i = 0; i < num_chunks; ++i) {
         ChunkInfo chunk;
-        chunk.column_index = static_cast<size_t>(read_int64());
-        chunk.offset = read_int64();
-        chunk.size_in_bytes = read_int64();
-        chunk.num_rows = static_cast<size_t>(read_int64());
+        chunk.column_index = static_cast<size_t>(read_int<int32_t>());
+        chunk.offset = read_int<int64_t>();
+        chunk.size_in_bytes = read_int<int64_t>();
+        chunk.num_rows = static_cast<size_t>(read_int<int32_t>());
         chunks_.push_back(chunk);
     }
-
-    return {};
 }
 
-Expected<bool> ColumnarReader::fill_batch(Batch& batch) {
+bool ColumnarReader::fill_batch(Batch& batch) {
     size_t num_columns = schema_.get_column_count();
 
     if (current_chunk_index_ * num_columns >= chunks_.size()) {
         return false;
     }
 
-    std::vector<std::vector<std::string>> columns_data(num_columns);
     size_t num_rows = 0;
 
     for (size_t col = 0; col < num_columns; ++col) {
@@ -91,39 +96,55 @@ Expected<bool> ColumnarReader::fill_batch(Batch& batch) {
         const ChunkInfo& chunk = chunks_[chunk_idx];
         output_file_.seekg(chunk.offset);
         num_rows = chunk.num_rows;
-        columns_data[col].reserve(num_rows);
-        DataType type = schema_.get_column(col)->type_;
+        Type type = schema_.get_column(col).type_;
 
-        if (type == DataType::int64) {
+        switch (type) {
+        case Type::Int16:
             for (size_t row = 0; row < num_rows; ++row) {
-                int64_t value = read_int64();
-                columns_data[col].push_back(std::to_string(value));
+                int16_t value = read_int<int16_t>();
+                batch.append_column(col, value);
             }
-        } else if (type == DataType::string) {
+            break;
+        case Type::Int32:
             for (size_t row = 0; row < num_rows; ++row) {
-                int64_t len = read_int64();
-                std::string str;
-                str.resize(static_cast<size_t>(len));
-                output_file_.read(str.data(), len);
-                columns_data[col].push_back(str);
+                int32_t value = read_int<int32_t>();
+                batch.append_column(col, value);
             }
+            break;
+        case Type::Int64:
+            for (size_t row = 0; row < num_rows; ++row) {
+                int64_t value = read_int<int64_t>();
+                batch.append_column(col, value);
+            }
+            break;
+        case Type::String:
+            for (size_t row = 0; row < num_rows; ++row) {
+                std::string str = read_string();
+                batch.append_column(col, str);
+            }
+            break;
+        case Type::Date:
+            for (size_t row = 0; row < num_rows; ++row) {
+                int32_t value = read_int<int32_t>();
+                batch.append_column(col, value);
+            }
+            break;
+        case Type::Timestamp:
+            for (size_t row = 0; row < num_rows; ++row) {
+                int64_t value = read_int<int64_t>();
+                batch.append_column(col, value);
+            }
+            break;
+        case Type::Char:
+            for (size_t row = 0; row < num_rows; ++row) {
+                char ch = read_char();
+                batch.append_column(col, ch);
+            }
+            break;
         }
     }
 
-    for (size_t row = 0; row < num_rows; ++row) {
-        std::vector<std::string> row_data;
-        row_data.reserve(num_columns);
-
-        for (size_t col = 0; col < num_columns; ++col) {
-            row_data.push_back(columns_data[col][row]);
-        }
-
-        auto res = batch.add_row(row_data);
-        if (!res.has_value()) {
-            return std::unexpected(res.error());
-        }
-    }
-
+    batch.set_row_count(num_rows);
     current_chunk_index_++;
 
     return current_chunk_index_ * num_columns < chunks_.size();
@@ -133,15 +154,20 @@ const Schema& ColumnarReader::schema() const {
     return schema_;
 }
 
-int64_t ColumnarReader::read_int64() {
-    int64_t value;
-    output_file_.read(reinterpret_cast<char*>(&value), 8);
+std::string ColumnarReader::read_string() {
+    int32_t len = read_int<int32_t>();
+    std::string str;
+    str.resize(static_cast<size_t>(len));
+    output_file_.read(str.data(), len);
 
-    if (std::endian::native == std::endian::big) {
-        value = std::byteswap(value);
-    }
+    return str;
+}
 
-    return value;
+char ColumnarReader::read_char() {
+    char ch;
+    output_file_.read(&ch, 1);
+
+    return ch;
 }
 
 }  // namespace columnar
