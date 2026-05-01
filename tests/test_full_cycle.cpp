@@ -19,16 +19,13 @@ void test_writing(const std::string& csv_schema, const std::string& csv_data,
     columnar::Batch batch(schema, 50'000);
 
     int row_group = 0;
-    while (true) {
-        if (reader.eof()) {
+    std::vector<std::string> row;
+    while (reader.parse_row(schema, row)) {
+        if (row.empty()) {
             break;
         }
 
-        std::vector<std::string> row = reader.parse_row(schema);
-
-        if (row.size() != 0) {
-            batch.add_row(row);
-        }
+        batch.add_row(row);
 
         if (batch.is_full()) {
             std::cout << "Writing Row Group: " << row_group++ << '\n';
@@ -36,6 +33,7 @@ void test_writing(const std::string& csv_schema, const std::string& csv_data,
             batch.clear();
         }
 
+        row.clear();
     }
 
     if (batch.get_row_count() != 0) {
@@ -54,11 +52,13 @@ void test_reading(const std::string& reconstructed_schema, const std::string& re
 
     const columnar::Schema& schema = reader.schema();
 
-    columnar::CsvWriter schema_writer = columnar::CsvWriter::open_csv_to_write(reconstructed_schema, schema);
+    columnar::CsvWriter schema_writer =
+        columnar::CsvWriter::open_csv_to_write(reconstructed_schema, schema);
 
     schema_writer.write_schema(reconstructed_schema);
 
-    columnar::CsvWriter data_writer = columnar::CsvWriter::open_csv_to_write(reconstructed_data, schema);
+    columnar::CsvWriter data_writer =
+        columnar::CsvWriter::open_csv_to_write(reconstructed_data, schema);
 
     columnar::Batch batch(schema, 50'000);
 
