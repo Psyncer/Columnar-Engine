@@ -1,3 +1,4 @@
+#include <cstring>
 #include <fstream>
 #include <ios>
 #include <iostream>
@@ -24,8 +25,9 @@ CsvReader CsvReader::open_csv(const std::string& path_to_data, const std::string
 }
 
 CsvReader::CsvReader(std::ifstream&& data_file, std::ifstream&& schema_file, char delimiter)
-    : data_file_(std::move(data_file)), schema_file_(std::move(schema_file)), buffer_(kBufSize),
+    : data_file_(std::move(data_file)), schema_file_(std::move(schema_file)),
       delimiter_(delimiter) {
+    buffer_.reserve(kReadBufSize);
     refill();
 }
 
@@ -45,58 +47,62 @@ Schema CsvReader::parse_schema() {
     return schema;
 }
 
-bool CsvReader::parse_row(const Schema& schema, std::vector<std::string>& row) {
+bool CsvReader::parse_row(const Schema& schema, std::vector<std::string>& row, std::string& token) {
     bool in_quotes = false;
-    std::string token;
-
     char ch;
 
     while (get_char(ch)) {
-        if (in_quotes) {
-            if (ch == '"') {
-                get_char(ch);  // instead of peeking we extract
-                if (ch == '"') {
-                    token += ch;
-                } else {
-                    in_quotes = false;
-                    pos_--;  // and then restore here
+        // add fast path with std::memchr() for unquoted fields
 
-                    // For
-                    // =======================
-                    // ...
-                    // 6,"""Lucas"",199,Oslo
-                    // 7,"Emi""ly",21,Tokyo
-                    // ...
-                    // =======================
-                    // where closing " is followed by 'E'
-                    // (or something other than [\n], [,] or [EOF])
-                    // and tokens.size() != schema.get_column_count()
-                    // does not see the problem
-                    ASS(buffer_[pos_] == '\n' || buffer_[pos_] == ',', "invalid data format");
-                }
-            } else {
+        if (in_quotes) {
+            if (ch != '"') {
                 token += ch;
+                continue;
             }
+
+            get_char(ch);  // instead of peeking we extract
+            if (ch == '"') {
+                token += ch;
+                continue;
+            }
+
+            in_quotes = false;
+            pos_--;  // and then restore here
+
+            // Assertion for
+            // =======================
+            // ...
+            // 6,"""Lucas"",199,Oslo
+            // 7,"Emi""ly",21,Tokyo
+            // ...
+            // =======================
+            // where closing " is followed by 'E'
+            // (or something other than [\n], [,] or [EOF])
+            // and tokens.size() != schema.get_column_count()
+            // does not see the problem
+            ASS(buffer_[pos_] == '\n' || buffer_[pos_] == ',', "invalid data format");
+
+            continue;
+        }
+
+        if (ch == '"' && token.empty()) {
+            in_quotes = true;
+        } else if (ch == delimiter_) {
+            row.push_back(std::move(token));
+            token.clear();
+        } else if (ch == '\n') {
+            row.push_back(std::move(token));
+            ASS(row.size() == schema.get_column_count(), "invalid data format");
+            return true;
+        } else if (ch == '\r') {
+            // skip to handle \r\n
         } else {
-            if (ch == '"' && token.empty()) {
-                in_quotes = true;
-            } else if (ch == delimiter_) {
-                row.push_back(token);
-                token.clear();
-            } else if (ch == '\n') {
-                row.push_back(token);
-                ASS(row.size() == schema.get_column_count(), "invalid data format");
-                return true;
-            } else if (ch == '\r') {
-                // skip to handle \r\n
-            } else {
-                token += ch;
-            }
+            token += ch;
         }
     }
 
     if (!token.empty() || row.size() != 0) {
-        row.push_back(token);
+        row.push_back(std::move(token));
     }
 
     ASS(row.size() == schema.get_column_count() || row.size() == 0, "invalid data format");
@@ -117,7 +123,7 @@ bool CsvReader::get_char(char& ch) {
 }
 
 bool CsvReader::refill() {
-    data_file_.read(buffer_.data(), kBufSize);
+    data_file_.read(buffer_.data(), kReadBufSize);
 
     len_ = static_cast<size_t>(data_file_.gcount());
     pos_ = 0;
