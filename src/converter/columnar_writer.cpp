@@ -24,6 +24,7 @@ ColumnarWriter ColumnarWriter::open_output(const std::string& path_to_output,
 
 ColumnarWriter::ColumnarWriter(std::ofstream&& file, const Schema& schema)
     : output_file_(std::move(file)), schema_(schema) {
+    buffer_.reserve(kWriteBufSize);
 }
 
 void ColumnarWriter::write_batch(const Batch& batch) {
@@ -38,22 +39,13 @@ void ColumnarWriter::write_batch(const Batch& batch) {
 
         if (type == Type::Int16) {
             const auto& column = column_data.get<int16_t>();
-
-            for (const auto& value : column) {
-                write_int<int16_t>(value);
-            }
+            write_column(column);
         } else if (type == Type::Int32) {
             const auto& column = column_data.get<int32_t>();
-
-            for (const auto& value : column) {
-                write_int<int32_t>(value);
-            }
+            write_column(column);
         } else if (type == Type::Int64) {
             const auto& column = column_data.get<int64_t>();
-
-            for (const auto& value : column) {
-                write_int<int64_t>(value);
-            }
+            write_column(column);
         } else if (type == Type::String) {
             const auto& column = column_data.get<std::string>();
 
@@ -64,27 +56,20 @@ void ColumnarWriter::write_batch(const Batch& batch) {
             }
         } else if (type == Type::Date) {
             const auto& column = column_data.get<int32_t>();
-
-            for (const auto& value : column) {
-                write_int<int32_t>(value);
-            }
+            write_column(column);
         } else if (type == Type::Timestamp) {
             const auto& column = column_data.get<int64_t>();
-
-            for (const auto& value : column) {
-                write_int<int64_t>(value);
-            }
+            write_column(column);
         } else if (type == Type::Char) {
             const auto& column = column_data.get<char>();
-
-            for (const auto& ch : column) {
-                write_char(ch);
-            }
+            write_column(column);
         }
 
         chunk.size_in_bytes = offset_ - chunk.offset;
         chunk_info_.push_back(chunk);
     }
+
+    flush();
 }
 
 void ColumnarWriter::write_metadata() {
@@ -115,16 +100,26 @@ void ColumnarWriter::write_metadata() {
 
     int64_t metasize = offset_ - metastart;
     write_int<int64_t>(metasize);
+
+    flush();
+}
+
+void ColumnarWriter::flush() {
+    if (!buffer_.empty()) {
+        output_file_.write(buffer_.data(), static_cast<std::streamsize>(buffer_.size()));
+        buffer_.clear();
+    }
 }
 
 void ColumnarWriter::write_string(const std::string& str, int64_t len) {
-    output_file_.write(str.data(), static_cast<std::streamsize>(len));
-    offset_ += len;
-}
+    if (buffer_.size() + static_cast<size_t>(len) >= buffer_.capacity()) {
+        flush();
+    }
 
-void ColumnarWriter::write_char(char ch) {
-    output_file_.write(&ch, 1);
-    offset_ += 1;
+    const char* ptr = str.data();
+    buffer_.insert(buffer_.end(), ptr, ptr + len);
+
+    offset_ += len;
 }
 
 }  // namespace columnar

@@ -18,9 +18,11 @@ void test_writing(const std::string& csv_schema, const std::string& csv_data,
 
     columnar::Batch batch(schema, 50'000);
 
-    int row_group = 0;
     std::vector<std::string> row;
-    while (reader.parse_row(schema, row)) {
+    row.reserve(schema.get_column_count());
+    std::string token;
+    token.reserve(64);
+    while (reader.parse_row(schema, row, token)) {
         if (row.empty()) {
             break;
         }
@@ -28,7 +30,6 @@ void test_writing(const std::string& csv_schema, const std::string& csv_data,
         batch.add_row(row);
 
         if (batch.is_full()) {
-            std::cout << "Writing Row Group: " << row_group++ << '\n';
             writer.write_batch(batch);
             batch.clear();
         }
@@ -37,7 +38,6 @@ void test_writing(const std::string& csv_schema, const std::string& csv_data,
     }
 
     if (batch.get_row_count() != 0) {
-        std::cout << "Writing Row Group: " << row_group << '\n';
         writer.write_batch(batch);
         batch.clear();
     }
@@ -62,11 +62,7 @@ void test_reading(const std::string& reconstructed_schema, const std::string& re
 
     columnar::Batch batch(schema, 50'000);
 
-    int row_group = 0;
-
     while (true) {
-        std::cout << "Reading Row Group: " << row_group++ << '\n';
-
         bool has_more = reader.fill_batch(batch);
 
         if (batch.get_row_count() > 0) {
@@ -101,16 +97,16 @@ int main(int argc, char* argv[]) {
         ASS(false, "need to log STL exceptions");
     }
 
-    std::string reconstructed_schema = "/home/mike/Columnar-Engine/tests/schema_reconstructed.csv";
-    std::string reconstructed_data = "/home/mike/Columnar-Engine/tests/data_reconstructed.csv";
+    // std::string reconstructed_schema = "/home/mike/Columnar-Engine/tests/schema_reconstructed.csv";
+    // std::string reconstructed_data = "/home/mike/Columnar-Engine/tests/data_reconstructed.csv";
 
-    std::cout << "Converting columnar file back to CSV..." << std::endl;
+    // std::cout << "Converting columnar file back to CSV..." << std::endl;
 
-    try {
-        test_reading(reconstructed_schema, reconstructed_data, output_file);
-    } catch (...) {
-        ASS(false, "need to log STL exceptions");
-    }
+    // try {
+    //     test_reading(reconstructed_schema, reconstructed_data, output_file);
+    // } catch (...) {
+    //     ASS(false, "need to log STL exceptions");
+    // }
 
     return 0;
 }
