@@ -1,31 +1,11 @@
 #include <cstddef>
-#include <sstream>
 #include <string>
-#include <vector>
 
 #include "assert.hpp"
 #include "data_type.hpp"
 #include "parsing.hpp"
 
 namespace columnar {
-
-std::vector<std::string> split(const std::string& line, char delimiter) {
-    // ====================
-    // don't use this shit
-    // ====================
-
-    std::vector<std::string> tokens;
-    std::stringstream ss(line);
-    std::string token;
-
-    while (std::getline(ss, token, delimiter)) {
-        tokens.push_back(token);
-    }
-
-    ASS(tokens.size() == 2, "invalid schema format");
-
-    return tokens;
-}
 
 Type get_data_type(const std::string& type) {
     if (type == "int16") {
@@ -67,42 +47,6 @@ bool valid_timestamp_format(const char* p) {
            static_cast<unsigned>(p[14] - '0') <= 9 && static_cast<unsigned>(p[15] - '0') <= 9 &&
            p[16] == ':' && static_cast<unsigned>(p[17] - '0') <= 9 &&
            static_cast<unsigned>(p[18] - '0') <= 9;
-}
-
-int16_t parse_int16(const std::string& token) {
-    int16_t value;
-
-    try {
-        value = static_cast<int16_t>(std::stol(token));
-    } catch (const std::exception& e) {
-        ASS(false, "not convertable to int16_t");
-    }
-
-    return value;
-}
-
-int32_t parse_int32(const std::string& token) {
-    int32_t value;
-
-    try {
-        value = static_cast<int32_t>(std::stoll(token));
-    } catch (const std::exception& e) {
-        ASS(false, "not convertable to int32_t");
-    }
-
-    return value;
-}
-
-int64_t parse_int64(const std::string& token) {
-    int64_t value;
-
-    try {
-        value = static_cast<int64_t>(std::stoll(token));
-    } catch (const std::exception& e) {
-        ASS(false, "not convertable to int64_t");
-    }
-
-    return value;
 }
 
 int32_t parse_date(const std::string& token) {

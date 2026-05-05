@@ -14,3 +14,4 @@ Makefile
 compile_commands.json
 hits.csv
 hits_100k.csv
+Perf\ logs/

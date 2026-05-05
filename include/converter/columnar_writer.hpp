@@ -12,7 +12,7 @@
 
 namespace columnar {
 
-constexpr size_t kWriteBufSize = 1ULL << 23;
+constexpr size_t kWriteBufSize = 1ULL << 25;  // 32 MB
 
 class ColumnarWriter {
 private:
