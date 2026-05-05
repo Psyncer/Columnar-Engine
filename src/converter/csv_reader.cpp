@@ -60,8 +60,9 @@ Schema CsvReader::parse_schema() {
         count = len - pos;
 
         const char* newline_ptr = static_cast<const char*>(std::memchr(start, '\n', count));
+
         if (newline_ptr != nullptr) {
-            type = std::string(start, newline_ptr - 1);
+            type = std::string(start, newline_ptr);
             pos += static_cast<size_t>(newline_ptr - start + 1);
         } else {
             type = std::string(start, static_cast<const char*>(schema_buffer.data() + len));

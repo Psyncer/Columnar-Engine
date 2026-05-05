@@ -101,16 +101,16 @@ int main(int argc, char* argv[]) {
         ASS(false, "need to log STL exceptions");
     }
 
-    // std::string reconstructed_schema = "/home/mike/Columnar-Engine/tests/schema_reconstructed.csv";
-    // std::string reconstructed_data = "/home/mike/Columnar-Engine/tests/data_reconstructed.csv";
+    std::string reconstructed_schema = "/home/mike/Columnar-Engine/tests/schema_reconstructed.csv";
+    std::string reconstructed_data = "/home/mike/Columnar-Engine/tests/data_reconstructed.csv";
 
-    // std::cout << "Converting columnar file back to CSV..." << std::endl;
+    std::cout << "Converting columnar file back to CSV..." << std::endl;
 
-    // try {
-    //     test_reading(reconstructed_schema, reconstructed_data, output_file);
-    // } catch (...) {
-    //     ASS(false, "need to log STL exceptions");
-    // }
+    try {
+        test_reading(reconstructed_schema, reconstructed_data, output_file);
+    } catch (...) {
+        ASS(false, "need to log STL exceptions");
+    }
 
     return 0;
 }
