@@ -71,15 +71,15 @@ void Batch::add_row(const std::vector<std::string>& row) {
 
         switch (type) {
         case Type::Int16: {
-            parse_and_append<int16_t>(columns_[i], row[i], parse_int16);
+            parse_and_append<int16_t>(columns_[i], row[i], parse_int<int16_t>);
             break;
         }
         case Type::Int32: {
-            parse_and_append<int32_t>(columns_[i], row[i], parse_int32);
+            parse_and_append<int32_t>(columns_[i], row[i], parse_int<int32_t>);
             break;
         }
         case Type::Int64: {
-            parse_and_append<int64_t>(columns_[i], row[i], parse_int64);
+            parse_and_append<int64_t>(columns_[i], row[i], parse_int<int64_t>);
             break;
         }
         case Type::String: {

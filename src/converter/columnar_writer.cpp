@@ -23,8 +23,7 @@ ColumnarWriter ColumnarWriter::open_output(const std::string& path_to_output,
 }
 
 ColumnarWriter::ColumnarWriter(std::ofstream&& file, const Schema& schema)
-    : output_file_(std::move(file)), schema_(schema) {
-    buffer_.reserve(kWriteBufSize);
+    : output_file_(std::move(file)), schema_(schema), buffer_(kWriteBufSize) {
 }
 
 void ColumnarWriter::write_batch(const Batch& batch) {

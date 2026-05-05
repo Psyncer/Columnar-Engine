@@ -16,17 +16,14 @@ void test_writing(const std::string& csv_schema, const std::string& csv_data,
 
     columnar::ColumnarWriter writer = columnar::ColumnarWriter::open_output(output_file, schema);
 
-    columnar::Batch batch(schema, 50'000);
+    columnar::Batch batch(schema, 5'000);
 
     std::vector<std::string> row;
     row.reserve(schema.get_column_count());
-    std::string token;
-    token.reserve(64);
-    while (reader.parse_row(schema, row, token)) {
+    while (reader.parse_row(schema, row)) {
         if (row.empty()) {
             break;
         }
-
         batch.add_row(row);
 
         if (batch.is_full()) {
@@ -35,6 +32,10 @@ void test_writing(const std::string& csv_schema, const std::string& csv_data,
         }
 
         row.clear();
+    }
+
+    if (!row.empty()) {
+        batch.add_row(row);
     }
 
     if (batch.get_row_count() != 0) {
@@ -60,20 +61,23 @@ void test_reading(const std::string& reconstructed_schema, const std::string& re
     columnar::CsvWriter data_writer =
         columnar::CsvWriter::open_csv_to_write(reconstructed_data, schema);
 
-    columnar::Batch batch(schema, 50'000);
+    columnar::Batch batch(schema, 5'000);
 
     while (true) {
         bool has_more = reader.fill_batch(batch);
 
         if (batch.get_row_count() > 0) {
             data_writer.write_batch(batch);
+            batch.clear();
         }
 
         if (!has_more) {
             break;
         }
+    }
 
-        batch.clear();
+    if (batch.get_row_count() > 0) {
+        data_writer.write_batch(batch);
     }
 
     batch.clear();

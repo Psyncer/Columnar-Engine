@@ -8,7 +8,9 @@
 
 namespace columnar {
 
-constexpr size_t kReadBufSize = 1ULL << 23;
+constexpr size_t kReadBufSize = 1ULL << 24;     // 16 MB
+constexpr size_t kBufThreshold = 1ULL << 16;    // 64 KB
+constexpr size_t kReadSchemaSize = 1ULL << 15;  // 32 KB
 
 class CsvReader {
 private:
@@ -25,15 +27,16 @@ public:
 
     Schema parse_schema();  // throws
 
-    bool parse_row(const Schema& schema, std::vector<std::string>& row,
-                   std::string& token);  // throws
+    bool parse_row(const Schema& schema, std::vector<std::string>& row);  // throws
 
 private:
-    CsvReader(std::ifstream&& data_file, std::ifstream&& schema_file, char delimiter = ',');
+    CsvReader(std::ifstream&& data_file, std::ifstream&& schema_file, char delimiter);
 
-    bool get_char(char& ch);
+    bool refill();  // throws
 
-    bool refill();
+    void check_refill();  // throws
+
+    bool increment_pos(size_t n);  // throws
 };
 
 }  // namespace columnar
