@@ -60,7 +60,9 @@ Batch::Batch(const Schema& schema, size_t capacity) : schema_(schema), capacity_
             break;
         }
         default:
-            ASS(false, "type not implemented");
+            std::cerr << "Type not implemented" << "\n  at " << __FILE__ << ":" << __LINE__
+                      << "\n  in " << __func__ << std::endl;
+            std::abort();
         }
     }
 }
@@ -99,7 +101,9 @@ void Batch::add_row(const std::vector<std::string>& row) {
             break;
         }
         default:
-            ASS(false, "type not implemented");
+            std::cerr << "Type not implemented" << "\n  at " << __FILE__ << ":" << __LINE__
+                      << "\n  in " << __func__ << std::endl;
+            std::abort();
         }
     }
 

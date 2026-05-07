@@ -32,9 +32,9 @@ public:
 private:
     CsvReader(std::ifstream&& data_file, std::ifstream&& schema_file, char delimiter);
 
-    bool refill();  // throws
+    bool fill();  // throws
 
-    void check_refill();  // throws
+    void refill();  // throws
 
     bool increment_pos(size_t n);  // throws
 };

@@ -63,7 +63,9 @@ void ColumnarReader::read_metadata() {
             type = Type::Char;
             break;
         default:
-            ASS(false, "type not implemented");
+            std::cerr << "Type not implemented" << "\n  at " << __FILE__ << ":" << __LINE__
+                      << "\n  in " << __func__ << std::endl;
+            std::abort();
         }
 
         schema_.add_column(name, type);
