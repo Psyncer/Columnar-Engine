@@ -28,7 +28,7 @@ CsvReader CsvReader::open_csv(const std::string& path_to_data, const std::string
 CsvReader::CsvReader(std::ifstream&& data_file, std::ifstream&& schema_file, char delimiter)
     : data_file_(std::move(data_file)), schema_file_(std::move(schema_file)), buffer_(kReadBufSize),
       delimiter_(delimiter) {
-    refill();
+    fill();
 }
 
 Schema CsvReader::parse_schema() {
@@ -82,45 +82,49 @@ bool CsvReader::parse_row(const Schema& schema, std::vector<std::string>& row) {
     char ch;
 
     while (true) {
-        check_refill();
+        refill();
 
         ch = buffer_[pos_];
 
         if (in_quotes) {
+            std::string token;
             const char* start = buffer_.data() + pos_;
             size_t count = len_ - pos_;
 
             const char* quote_ptr = static_cast<const char*>(std::memchr(start, '"', count));
             if (quote_ptr == nullptr) {
-                ASS(false, "this should not be happening");
+                std::cerr << "This should no be happenning" << "\n  at " << __FILE__ << ":"
+                          << __LINE__ << "\n  in " << __func__ << std::endl;
+                std::abort();
             }
 
-            row.emplace_back(start, quote_ptr);
+            token += std::string(start, quote_ptr);
             if (increment_pos(static_cast<size_t>(quote_ptr - start + 1))) {
+                row.push_back(token);
                 break;
             }
 
-            // =====================================================
-            // Only for datasets that have quote marks (") inside
-            // a quoted field, requires appending a field gradually
-            // instead of emplacing a whole quoted field
-            // =====================================================
-            // if (buffer_[pos_] == '"') {
-            //     token += '"';
-            //     std::cout << "is this ever even triggered?" << '\n';
-            //     if (increment_pos(1)) {
-            //         break;
-            //     }
-            //     continue;
-            // }
+            if (buffer_[pos_] == '"') {
+                token += '"';
+                if (increment_pos(1)) {
+                    std::cerr << "Last field is missing a closing quote" << "\n  at " << __FILE__
+                              << ":" << __LINE__ << "\n  in " << __func__ << std::endl;
+                    std::abort();
+                }
+                continue;
+            }
             if (buffer_[pos_] == delimiter_) {
+                row.push_back(token);
                 in_quotes = false;
                 if (increment_pos(1)) {
-                    break;
+                    std::cerr << "Last field is followed by a comma" << "\n  at " << __FILE__ << ":"
+                              << __LINE__ << "\n  in " << __func__ << std::endl;
+                    std::abort();
                 }
                 continue;
             }
             if (buffer_[pos_] == '\n') {
+                row.push_back(token);
                 in_quotes = false;
                 if (increment_pos(1)) {
                     break;
@@ -128,7 +132,9 @@ bool CsvReader::parse_row(const Schema& schema, std::vector<std::string>& row) {
                 ASS(row.size() == schema.get_column_count(), "invalid data format");
                 return true;
             }
-            ASS(false, "invalid data format");
+            std::cerr << "Invalid data format" << "\n  at " << __FILE__ << ":" << __LINE__
+                      << "\n  in " << __func__ << std::endl;
+            std::abort();
         }
 
         if (ch == '"') {
@@ -172,7 +178,7 @@ bool CsvReader::parse_row(const Schema& schema, std::vector<std::string>& row) {
     return false;
 }
 
-bool CsvReader::refill() {
+bool CsvReader::fill() {
     data_file_.read(buffer_.data(), kReadBufSize);
 
     len_ = static_cast<size_t>(data_file_.gcount());
@@ -182,19 +188,19 @@ bool CsvReader::refill() {
     return eof;
 }
 
-void CsvReader::check_refill() {
+void CsvReader::refill() {
     if ((pos_ + kBufThreshold >= len_) && !data_file_.eof()) {
         // refills when less that 1MB of data is left in the buffer
         // to avoid splitting a field across the buffers
         data_file_.seekg(-static_cast<off_t>(len_ - pos_), std::ios_base::cur);
-        refill();  // cannot return true
+        fill();  // cannot return true
     }
 }
 
 bool CsvReader::increment_pos(size_t n) {
     pos_ += n;
     if (pos_ >= len_) {
-        if (refill()) {
+        if (fill()) {
             return true;
         }
     }

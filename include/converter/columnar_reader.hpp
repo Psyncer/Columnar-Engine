@@ -1,3 +1,8 @@
+// ===================================================
+// Right now this class is only used for full reverse
+// conversion from columnar file back to CSV dataset
+// ===================================================
+
 #pragma once
 
 #include <bit>

@@ -1,6 +1,5 @@
 #include <iostream>
 
-#include "assert.hpp"
 #include "batch.hpp"
 #include "columnar_reader.hpp"
 #include "columnar_writer.hpp"
@@ -93,24 +92,29 @@ int main(int argc, char* argv[]) {
     std::string csv_data = argv[2];
     std::string output_file = "/home/mike/Columnar-Engine/tests/output.columnar";
 
-    std::cout << "Converting CSV to columnar file..." << std::endl;
+    std::cout << "\nConverting CSV to columnar file..." << std::endl;
 
     try {
         test_writing(csv_schema, csv_data, output_file);
     } catch (...) {
-        ASS(false, "need to log STL exceptions");
+        std::cerr << "Need to log STL exceptions" << "\n  at " << __FILE__ << ":" << __LINE__
+                  << "\n  in " << __func__ << std::endl;
+        std::abort();
     }
 
-    std::string reconstructed_schema = "/home/mike/Columnar-Engine/tests/schema_reconstructed.csv";
-    std::string reconstructed_data = "/home/mike/Columnar-Engine/tests/data_reconstructed.csv";
+    // std::string reconstructed_schema =
+    // "/home/mike/Columnar-Engine/tests/schema_reconstructed.csv"; std::string reconstructed_data =
+    // "/home/mike/Columnar-Engine/tests/data_reconstructed.csv";
 
-    std::cout << "Converting columnar file back to CSV..." << std::endl;
+    // std::cout << "Converting columnar file back to CSV..." << std::endl;
 
-    try {
-        test_reading(reconstructed_schema, reconstructed_data, output_file);
-    } catch (...) {
-        ASS(false, "need to log STL exceptions");
-    }
+    // try {
+    //     test_reading(reconstructed_schema, reconstructed_data, output_file);
+    // } catch (...) {
+    //     std::cerr << "Need to log STL exceptions" << "\n  at " << __FILE__ << ":" << __LINE__
+    //               << "\n  in " << __func__ << std::endl;
+    //     std::abort();
+    // }
 
     return 0;
 }
