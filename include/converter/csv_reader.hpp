@@ -7,11 +7,7 @@
 #include "schema.hpp"
 
 namespace columnar {
-
-constexpr size_t kReadBufSize = 1ULL << 24;     // 16 MB
-constexpr size_t kBufThreshold = 1ULL << 16;    // 64 KB
-constexpr size_t kReadSchemaSize = 1ULL << 15;  // 32 KB
-
+    
 class CsvReader {
 private:
     std::ifstream data_file_;

@@ -6,13 +6,11 @@
 #include <string>
 #include <vector>
 
-#include "batch.hpp"
 #include "chunk_info.hpp"
+#include "conversion_batch.hpp"
 #include "schema.hpp"
 
 namespace columnar {
-
-constexpr size_t kWriteBufSize = 1ULL << 25;  // 32 MB
 
 class ColumnarWriter {
 private:
@@ -25,7 +23,7 @@ private:
 public:
     static ColumnarWriter open_output(const std::string& path_to_output, const Schema& schema);
 
-    void write_batch(const Batch& batch);  // throws
+    void write_batch(const ConversionBatch& batch);  // throws
 
     void write_metadata();
 
@@ -36,11 +34,11 @@ private:
 
     template <typename T>
     void write_column(const T& column) {  // throws
-        if (buffer_.size() >= buffer_.capacity()) {
+        size_t bytes = column.size() * sizeof(typename T::value_type);
+        if (buffer_.size() + bytes >= buffer_.capacity()) {
             flush();
         }
         const char* ptr = reinterpret_cast<const char*>(column.data());
-        size_t bytes = column.size() * sizeof(typename T::value_type);
         buffer_.insert(buffer_.end(), ptr, ptr + bytes);
         offset_ += static_cast<int64_t>(bytes);
     }

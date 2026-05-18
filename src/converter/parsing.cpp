@@ -26,9 +26,6 @@ Type get_data_type(const std::string& type) {
     if (type == "TIMESTAMP") {
         return Type::Timestamp;
     }
-    if (type == "char") {
-        return Type::Char;
-    }
 
     std::cerr << "Type not implemented" << "\n  at " << __FILE__ << ":" << __LINE__ << "\n  in "
               << __func__ << std::endl;

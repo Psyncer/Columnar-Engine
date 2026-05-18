@@ -1,6 +1,9 @@
 add_library(columnar_engine
     schema.cpp
+    columnar_reader.cpp
+    operator.cpp
     batch.cpp
+    expression.cpp
 )
 
 target_include_directories(columnar_engine

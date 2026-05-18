@@ -6,6 +6,7 @@
 #include <sys/types.h>
 
 #include "assert.hpp"
+#include "config.hpp"
 #include "csv_reader.hpp"
 #include "parsing.hpp"
 #include "schema.hpp"
@@ -190,7 +191,7 @@ bool CsvReader::fill() {
 
 void CsvReader::refill() {
     if ((pos_ + kBufThreshold >= len_) && !data_file_.eof()) {
-        // refills when less that 1MB of data is left in the buffer
+        // refills when less that 64KB of data is left in the buffer
         // to avoid splitting a field across the buffers
         data_file_.seekg(-static_cast<off_t>(len_ - pos_), std::ios_base::cur);
         fill();  // cannot return true

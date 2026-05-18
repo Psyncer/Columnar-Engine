@@ -11,7 +11,30 @@ enum class Type : int8_t {
     String      = 3,
     Date        = 4,
     Timestamp   = 5,
-    Char        = 6,
+};
+
+template <typename T>
+struct TypeToEnum {
+};
+
+template <>
+struct TypeToEnum<int16_t> {
+    static constexpr Type value = Type::Int16;
+};
+
+template <>
+struct TypeToEnum<int32_t> {
+    static constexpr Type value = Type::Int32;
+};
+
+template <>
+struct TypeToEnum<int64_t> {
+    static constexpr Type value = Type::Int64;
+};
+
+template <>
+struct TypeToEnum<std::string> {
+    static constexpr Type value = Type::String;
 };
 
 inline const char* to_string(Type type) {
@@ -28,8 +51,6 @@ inline const char* to_string(Type type) {
         return "DATE";
     case Type::Timestamp:
         return "TIMESTAMP";
-    case Type::Char:
-        return "char";
     default:
         return "UNSUPPORTED";
     }
