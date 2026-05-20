@@ -8,17 +8,23 @@
 
 namespace columnar {
 
-class ColumnRef {
+class IValueExpression {
+public:
+    virtual Column evaluate(const Batch& batch) = 0;
+    virtual ~IValueExpression() = default;
+};
+
+class ColumnRef : public IValueExpression {
 private:
     std::string name_;
 
 public:
     ColumnRef(std::string name);
 
-    const Column* get_column(const Batch& batch) const;
+    Column evaluate(const Batch& batch) override;
 };
 
-class Literal {
+class Literal : public IValueExpression {
 private:
     std::variant<int64_t, std::string> literal_;
 
@@ -27,35 +33,60 @@ public:
     Literal(T literal) : literal_(literal) {
     }
 
-    std::variant<int64_t, std::string> get_literal();
+    Column evaluate(const Batch& batch) override;
 };
 
-class IExpression {
+class IFilterExpression {
 public:
     virtual void evaluate(const Batch& batch, std::vector<uint8_t>& mask) = 0;
-    virtual ~IExpression() = default;
+    virtual ~IFilterExpression() = default;
 };
 
-class NotEqual : public IExpression {
+class NotEqual : public IFilterExpression {
 private:
-    std::unique_ptr<ColumnRef> left_;
-    std::unique_ptr<Literal> right_;
+    std::unique_ptr<IValueExpression> left_;
+    std::unique_ptr<IValueExpression> right_;
 
 public:
-    NotEqual(std::unique_ptr<ColumnRef> left, std::unique_ptr<Literal> right);
+    NotEqual(std::unique_ptr<ColumnRef>&& left, std::unique_ptr<Literal>&& right);
 
     void evaluate(const Batch& batch, std::vector<uint8_t>& mask) override;
 
     template <typename T>
-    void dispatch_int_comparator(const Column* column, T value, std::vector<uint8_t>& mask) {
-        for (size_t i = 0; i < column->size(); ++i) {
-            if (column->data_as<T>()[i] == value) {
+    void dispatch_int_comparator(const Column& left, const Column& right,
+                                 std::vector<uint8_t>& mask) const {
+        switch (right.type()) {
+        case Type::Int16:
+            compare<T, int16_t>(left, right, mask);
+            break;
+        case Type::Int32:
+            compare<T, int32_t>(left, right, mask);
+            break;
+        case Type::Int64:
+            compare<T, int64_t>(left, right, mask);
+            break;
+        case Type::Date:
+            compare<T, int32_t>(left, right, mask);
+            break;
+        case Type::Timestamp:
+            compare<T, int64_t>(left, right, mask);
+            break;
+        default:
+            // wrong type
+            break;
+        }
+    }
+
+    template <typename T, typename F>
+    void compare(const Column& left, const Column& right, std::vector<uint8_t>& mask) const {
+        for (size_t i = 0; i < left.size(); ++i) {
+            if (left.data_as<T>()[i] == right.data_as<F>()[i]) {
                 mask[i] = 0;
             }
         }
     }
 
-    static void dispatch_string_comparator(const Column* column, std::string str,
+    static void dispatch_string_comparator(const Column& left, const Column& right,
                                            std::vector<uint8_t>& mask);
 };
 

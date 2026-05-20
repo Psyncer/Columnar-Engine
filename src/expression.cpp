@@ -5,6 +5,7 @@
 #include <utility>
 #include <variant>
 
+#include "data_type.hpp"
 #include "expression.hpp"
 
 namespace columnar {
@@ -12,62 +13,57 @@ namespace columnar {
 ColumnRef::ColumnRef(std::string name) : name_(std::move(name)) {
 }
 
-const Column* ColumnRef::get_column(const Batch& batch) const {
+Column ColumnRef::evaluate(const Batch& batch) {
     size_t idx = batch.schema_.get_column_index(name_);
-    return &batch.columns_[batch.idx_to_pos_.at(idx)];
+    Column column(batch.columns_[batch.idx_to_pos_.at(idx)]);
+
+    return column;
 }
 
-std::variant<int64_t, std::string> Literal::get_literal() {
-    return literal_;
+Column Literal::evaluate([[maybe_unused]] const Batch& batch) {
+    if (std::holds_alternative<std::string>(literal_)) {
+        return Column(Type::String, 0, std::get<std::string>(literal_));
+    }
+
+    return Column(Type::Int64, 0, std::get<int64_t>(literal_));
 }
 
-NotEqual::NotEqual(std::unique_ptr<ColumnRef> left, std::unique_ptr<Literal> right)
+NotEqual::NotEqual(std::unique_ptr<ColumnRef>&& left, std::unique_ptr<Literal>&& right)
     : left_(std::move(left)), right_(std::move(right)) {
 }
 
 void NotEqual::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
-    const Column* left = left_->get_column(batch);
-    std::variant<int64_t, std::string> right = right_->get_literal();
+    Column left(left_->evaluate(batch));
+    Column right(right_->evaluate(batch));
 
-    int64_t value = 0;
-    std::string str;
-    if (std::holds_alternative<int64_t>(right)) {
-        value = std::get<int64_t>(right);
-    } else {
-        str = std::get<std::string>(right);
-    }
+    // ASS same type for left and right
 
-    switch (left->type()) {
+    switch (left.type()) {
     case Type::Int16:
-        dispatch_int_comparator<int16_t>(left, static_cast<int16_t>(value), mask);
+        dispatch_int_comparator<int16_t>(left, right, mask);
         break;
     case Type::Int32:
-        dispatch_int_comparator<int32_t>(left, static_cast<int32_t>(value), mask);
+        dispatch_int_comparator<int32_t>(left, right, mask);
         break;
     case Type::Int64:
-        dispatch_int_comparator<int64_t>(left, static_cast<int64_t>(value), mask);
+        dispatch_int_comparator<int64_t>(left, right, mask);
         break;
     case Type::String:
-        dispatch_string_comparator(left, str, mask);
+        dispatch_string_comparator(left, right, mask);
         break;
     case Type::Date:
-        dispatch_int_comparator<int32_t>(left, static_cast<int32_t>(value), mask);
+        dispatch_int_comparator<int32_t>(left, right, mask);
         break;
     case Type::Timestamp:
-        dispatch_int_comparator<int64_t>(left, static_cast<int64_t>(value), mask);
+        dispatch_int_comparator<int64_t>(left, right, mask);
         break;
     }
 }
 
-void NotEqual::dispatch_string_comparator(const Column* column, std::string str,
+void NotEqual::dispatch_string_comparator(const Column& left, const Column& right,
                                           std::vector<uint8_t>& mask) {
-    size_t len = str.size();
-    const char* data = str.data();
-    for (size_t i = 0; i < column->size(); ++i) {
-        if (len != column->string_len(i)) {
-            continue;
-        }
-        if (std::memcmp(column->data_as<char>() + column->string_offset(i), data, len) == 0) {
+    for (size_t i = 0; i < left.size(); ++i) {
+        if (left.get_string(i) == right.get_string(i)) {
             mask[i] = 0;
         }
     }

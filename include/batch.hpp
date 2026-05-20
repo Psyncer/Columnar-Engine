@@ -28,7 +28,7 @@ struct Batch {
 
     Batch& operator=(Batch&& other) noexcept;
 
-    Column& get_column_by_idx(size_t idx);
+    const Column& get_column_by_idx(size_t idx) const;
 
     void clear();
 };

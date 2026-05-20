@@ -2,28 +2,28 @@
 
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <string>
 #include <unordered_set>
 
 #include "column.hpp"
+#include "expression.hpp"
 
 namespace columnar {
 
 enum class AggType {
     Count,
     CountDistinct,
-    StrCountDistinct,
     Sum,
     Min,
-    StrMin,
     Max,
-    StrMax,
     Avg,
 };
 
 struct AggSpec {
     AggType type;
     std::string name;
+    std::unique_ptr<IValueExpression> expr;
 };
 
 struct AggState {
@@ -45,23 +45,14 @@ struct AggState {
         case AggType::CountDistinct:
             column.push_value(distinct.size());
             break;
-        case AggType::StrCountDistinct:
-            column.push_value(str_distinct.size());
-            break;
         case AggType::Sum:
             column.push_value(static_cast<int64_t>(sum));
             break;
         case AggType::Min:
             column.push_value(min);
             break;
-        case AggType::StrMin:
-            column.push_string(str_min);
-            break;
         case AggType::Max:
             column.push_value(max);
-            break;
-        case AggType::StrMax:
-            column.push_string(str_max);
             break;
         case AggType::Avg:
             column.push_value(static_cast<int64_t>(sum / count));
@@ -71,25 +62,27 @@ struct AggState {
 };
 
 template <template <typename> class AggFn>
-void dispatch_agg(const Column& column, AggState& state, const std::vector<size_t>& active_rows) {
+void dispatch_agg(const Batch& batch, AggState& state,
+                  const std::unique_ptr<IValueExpression>& expr) {
+    const Column& column = expr->evaluate(batch);
     switch (column.type()) {
     case Type::Int16:
-        AggFn<int16_t>{}(column, state, active_rows);
+        AggFn<int16_t>{}(column, state, batch.active_rows_);
         break;
     case Type::Int32:
-        AggFn<int32_t>{}(column, state, active_rows);
+        AggFn<int32_t>{}(column, state, batch.active_rows_);
         break;
     case Type::Int64:
-        AggFn<int64_t>{}(column, state, active_rows);
+        AggFn<int64_t>{}(column, state, batch.active_rows_);
         break;
     case Type::String:
-        AggFn<char>{}(column, state, active_rows);
+        AggFn<char>{}(column, state, batch.active_rows_);
         break;
     case Type::Date:
-        AggFn<int32_t>{}(column, state, active_rows);
+        AggFn<int32_t>{}(column, state, batch.active_rows_);
         break;
     case Type::Timestamp:
-        AggFn<int64_t>{}(column, state, active_rows);
+        AggFn<int64_t>{}(column, state, batch.active_rows_);
         break;
     }
 }
@@ -129,7 +122,6 @@ public:
         const T* data = column.data_as<T>();
         for (const auto& row : active_rows) {
             state.sum += data[row];
-            // data[row] = 5;  // DELETE
         }
     }
 };

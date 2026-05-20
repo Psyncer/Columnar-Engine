@@ -8,20 +8,33 @@
 #include "columnar_writer.hpp"
 #include "conversion_batch.hpp"
 #include "csv_reader.hpp"
-#include "csv_writer.hpp"
 #include "expression.hpp"
 #include "operator.hpp"
 
-void test_writing(const std::string& csv_schema, const std::string& csv_data,
-                  const std::string& output_file) {
+using columnar::AggSpec;
+using columnar::AggType;
+using columnar::Batch;
+using columnar::ColumnarWriter;
+using columnar::ColumnRef;
+using columnar::ConversionBatch;
+using columnar::CsvReader;
+using columnar::FilterOperator;
+using columnar::GlobalAggOperator;
+using columnar::Literal;
+using columnar::NotEqual;
+using columnar::ScanOperator;
+using columnar::Schema;
 
-    columnar::CsvReader reader = columnar::CsvReader::open_csv(csv_data, csv_schema);
+void convert(const std::string& csv_schema, const std::string& csv_data,
+             const std::string& output_file) {
 
-    columnar::Schema schema = reader.parse_schema();
+    CsvReader reader = CsvReader::open_csv(csv_data, csv_schema);
 
-    columnar::ColumnarWriter writer = columnar::ColumnarWriter::open_output(output_file, schema);
+    Schema schema = reader.parse_schema();
 
-    columnar::ConversionBatch batch(schema);
+    ColumnarWriter writer = ColumnarWriter::open_output(output_file, schema);
+
+    ConversionBatch batch(schema);
 
     std::vector<std::string> row;
 
@@ -55,19 +68,19 @@ void test_writing(const std::string& csv_schema, const std::string& csv_data,
 // void test_reading(const std::string& reconstructed_schema, const std::string& reconstructed_data,
 //                   const std::string& output_file) {
 
-//     columnar::ColumnarReader reader = columnar::ColumnarReader::open_output(output_file);
+//     ColumnarReader reader = ColumnarReader::open_output(output_file);
 
-//     const columnar::Schema& schema = reader.schema();
+//     const Schema& schema = reader.schema();
 
-//     columnar::CsvWriter schema_writer =
-//         columnar::CsvWriter::open_csv_to_write(reconstructed_schema, schema);
+//     CsvWriter schema_writer =
+//         CsvWriter::open_csv_to_write(reconstructed_schema, schema);
 
 //     schema_writer.write_schema(reconstructed_schema);
 
-//     columnar::CsvWriter data_writer =
-//         columnar::CsvWriter::open_csv_to_write(reconstructed_data, schema);
+//     CsvWriter data_writer =
+//         CsvWriter::open_csv_to_write(reconstructed_data, schema);
 
-//     columnar::ConversionBatch batch(schema);
+//     ConversionBatch batch(schema);
 
 //     while (true) {
 //         bool has_more = reader.fill_batch(batch);
@@ -89,6 +102,16 @@ void test_writing(const std::string& csv_schema, const std::string& csv_data,
 //     batch.clear();
 // }
 
+template <typename... Ts>
+std::vector<AggSpec> make_aggs(Ts&&... ts) {
+    std::vector<AggSpec> v;
+    v.reserve(sizeof...(Ts));
+
+    (v.emplace_back(std::forward<Ts>(ts)), ...);
+
+    return v;
+}
+
 int main(int argc, char* argv[]) {
     if (argc != 3) {
         std::cerr << "Usage: " << argv[0] << " <schema.csv>" << " <data.csv>" << std::endl;
@@ -102,7 +125,7 @@ int main(int argc, char* argv[]) {
     // std::cout << "\nConverting CSV to columnar file..." << std::endl;
 
     // try {
-    //     test_writing(csv_schema, csv_data, output_file);
+    //     convert(csv_schema, csv_data, output_file);
     // } catch (...) {
     //     std::cerr << "Need to log STL exceptions" << "\n  at " << __FILE__ << ":" << __LINE__
     //               << "\n  in " << __func__ << std::endl;
@@ -115,19 +138,16 @@ int main(int argc, char* argv[]) {
     {
         std::cout << "Query 1" << std::endl;
 
-        auto scan =
-            std::make_unique<columnar::ScanOperator>(output_file, std::vector<std::string>{});
-
-        std::vector<columnar::AggSpec> specs{{columnar::AggType::Count, "*"}};
-
-        auto agg = std::make_unique<columnar::GlobalAggOperator>(std::move(scan), std::move(specs));
+        auto plan = std::make_unique<GlobalAggOperator>(
+            std::make_unique<ScanOperator>(output_file, std::vector<std::string>{}),
+            make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"))));
 
         auto start = std::chrono::steady_clock::now();
-        columnar::Batch* output_batch = agg->next();
+        Batch* output_batch = plan->next();
         auto end = std::chrono::steady_clock::now();
 
         for (size_t i = 0; i < output_batch->column_count_; ++i) {
-            std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ',';
+            std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ' ';
         }
 
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -140,26 +160,20 @@ int main(int argc, char* argv[]) {
     {
         std::cout << "\nQuery 2" << std::endl;
 
-        auto scan = std::make_unique<columnar::ScanOperator>(
-            output_file, std::vector<std::string>{"AdvEngineID"});
-
-        std::vector<columnar::AggSpec> specs{{columnar::AggType::Count, "*"}};
-
-        auto expr = std::make_unique<columnar::NotEqual>(
-            std::make_unique<columnar::ColumnRef>("AdvEngineID"),
-            std::make_unique<columnar::Literal>(0));
-
-        auto filter = std::make_unique<columnar::FilterOperator>(std::move(scan), std::move(expr));
-
-        auto agg =
-            std::make_unique<columnar::GlobalAggOperator>(std::move(filter), std::move(specs));
+        auto plan = std::make_unique<GlobalAggOperator>(
+            std::make_unique<FilterOperator>(
+                std::make_unique<ScanOperator>(output_file,
+                                               std::vector<std::string>{"AdvEngineID"}),
+                std::make_unique<NotEqual>(std::make_unique<ColumnRef>("AdvEngineID"),
+                                           std::make_unique<Literal>(0))),
+            make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"))));
 
         auto start = std::chrono::steady_clock::now();
-        columnar::Batch* output_batch = agg->next();
+        Batch* output_batch = plan->next();
         auto end = std::chrono::steady_clock::now();
 
         for (size_t i = 0; i < output_batch->column_count_; ++i) {
-            std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ',';
+            std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ' ';
         }
 
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -172,129 +186,129 @@ int main(int argc, char* argv[]) {
     {
         std::cout << "\nQuery 3" << std::endl;
 
-        auto scan = std::make_unique<columnar::ScanOperator>(
-            output_file, std::vector<std::string>{"AdvEngineID", "ResolutionWidth"});
-
-        std::vector<columnar::AggSpec> specs{{columnar::AggType::Sum, "AdvEngineID"},
-                                             {columnar::AggType::Count, "*"},
-                                             {columnar::AggType::Avg, "ResolutionWidth"}};
-
-        auto agg = std::make_unique<columnar::GlobalAggOperator>(std::move(scan), std::move(specs));
+        auto plan = std::make_unique<GlobalAggOperator>(
+            std::make_unique<ScanOperator>(
+                output_file, std::vector<std::string>{"AdvEngineID", "ResolutionWidth"}),
+            make_aggs(
+                AggSpec(AggType::Sum, "AdvEngineID", std::make_unique<ColumnRef>("AdvEngineID")),
+                AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*")),
+                AggSpec(AggType::Avg, "ResolutionWidth",
+                        std::make_unique<ColumnRef>("ResolutionWidth"))));
 
         auto start = std::chrono::steady_clock::now();
-        columnar::Batch* output_batch = agg->next();
+        Batch* output_batch = plan->next();
         auto end = std::chrono::steady_clock::now();
 
         for (size_t i = 0; i < output_batch->column_count_; ++i) {
-            std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ',';
+            std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ' ';
         }
 
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
         std::cout << "\nTime: " << ms << " ms" << std::endl;
     }
 
-    // ==============
-    // Query 4
-    // ==============
-    {
-        std::cout << "\nQuery 4" << std::endl;
+    // // ==============
+    // // Query 4
+    // // ==============
+    // {
+    //     std::cout << "\nQuery 4" << std::endl;
 
-        auto scan = std::make_unique<columnar::ScanOperator>(output_file,
-                                                             std::vector<std::string>{"UserID"});
+    //     auto scan = std::make_unique<ScanOperator>(output_file,
+    //     std::vector<std::string>{"UserID"});
 
-        std::vector<columnar::AggSpec> specs{{columnar::AggType::Avg, "UserID"}};
+    //     std::vector<AggSpec> specs{{AggType::Avg, "UserID"}};
 
-        auto agg = std::make_unique<columnar::GlobalAggOperator>(std::move(scan), std::move(specs));
+    //     auto agg = std::make_unique<GlobalAggOperator>(std::move(scan), std::move(specs));
 
-        auto start = std::chrono::steady_clock::now();
-        columnar::Batch* output_batch = agg->next();
-        auto end = std::chrono::steady_clock::now();
+    //     auto start = std::chrono::steady_clock::now();
+    //     Batch* output_batch = agg->next();
+    //     auto end = std::chrono::steady_clock::now();
 
-        for (size_t i = 0; i < output_batch->column_count_; ++i) {
-            std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ',';
-        }
+    //     for (size_t i = 0; i < output_batch->column_count_; ++i) {
+    //         std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ' ';
+    //     }
 
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
+    //     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    //     std::cout << "\nTime: " << ms << " ms" << std::endl;
+    // }
 
-    // ==============
-    // Query 5
-    // ==============
-    {
-        std::cout << "\nQuery 5" << std::endl;
+    // // ==============
+    // // Query 5
+    // // ==============
+    // {
+    //     std::cout << "\nQuery 5" << std::endl;
 
-        auto scan = std::make_unique<columnar::ScanOperator>(output_file,
-                                                             std::vector<std::string>{"UserID"});
+    //     auto scan = std::make_unique<ScanOperator>(output_file,
+    //     std::vector<std::string>{"UserID"});
 
-        std::vector<columnar::AggSpec> specs{{columnar::AggType::CountDistinct, "UserID"}};
+    //     std::vector<AggSpec> specs{{AggType::CountDistinct, "UserID"}};
 
-        auto agg = std::make_unique<columnar::GlobalAggOperator>(std::move(scan), std::move(specs));
+    //     auto agg = std::make_unique<GlobalAggOperator>(std::move(scan), std::move(specs));
 
-        auto start = std::chrono::steady_clock::now();
-        columnar::Batch* output_batch = agg->next();
-        auto end = std::chrono::steady_clock::now();
+    //     auto start = std::chrono::steady_clock::now();
+    //     Batch* output_batch = agg->next();
+    //     auto end = std::chrono::steady_clock::now();
 
-        for (size_t i = 0; i < output_batch->column_count_; ++i) {
-            std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ',';
-        }
+    //     for (size_t i = 0; i < output_batch->column_count_; ++i) {
+    //         std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ' ';
+    //     }
 
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
+    //     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    //     std::cout << "\nTime: " << ms << " ms" << std::endl;
+    // }
 
-    // ==============
-    // Query 6
-    // ==============
-    {
-        std::cout << "\nQuery 6" << std::endl;
+    // // ==============
+    // // Query 6
+    // // ==============
+    // {
+    //     std::cout << "\nQuery 6" << std::endl;
 
-        auto scan = std::make_unique<columnar::ScanOperator>(
-            output_file, std::vector<std::string>{"SearchPhrase"});
+    //     auto scan =
+    //         std::make_unique<ScanOperator>(output_file,
+    //         std::vector<std::string>{"SearchPhrase"});
 
-        std::vector<columnar::AggSpec> specs{{columnar::AggType::StrCountDistinct, "SearchPhrase"}};
+    //     std::vector<AggSpec> specs{{AggType::StrCountDistinct, "SearchPhrase"}};
 
-        auto agg = std::make_unique<columnar::GlobalAggOperator>(std::move(scan), std::move(specs));
+    //     auto agg = std::make_unique<GlobalAggOperator>(std::move(scan), std::move(specs));
 
-        auto start = std::chrono::steady_clock::now();
-        columnar::Batch* output_batch = agg->next();
-        auto end = std::chrono::steady_clock::now();
+    //     auto start = std::chrono::steady_clock::now();
+    //     Batch* output_batch = agg->next();
+    //     auto end = std::chrono::steady_clock::now();
 
-        for (size_t i = 0; i < output_batch->column_count_; ++i) {
-            std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ',';
-        }
+    //     for (size_t i = 0; i < output_batch->column_count_; ++i) {
+    //         std::cout << output_batch->columns_[i].get_value<int64_t>(0) << ' ';
+    //     }
 
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
+    //     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    //     std::cout << "\nTime: " << ms << " ms" << std::endl;
+    // }
 
-    // ==============
-    // Query 7
-    // ==============
-    {
-        std::cout << "\nQuery 7" << std::endl;
+    // // ==============
+    // // Query 7
+    // // ==============
+    // {
+    //     std::cout << "\nQuery 7" << std::endl;
 
-        auto scan = std::make_unique<columnar::ScanOperator>(output_file,
-                                                             std::vector<std::string>{"EventDate"});
+    //     auto scan =
+    //         std::make_unique<ScanOperator>(output_file, std::vector<std::string>{"EventDate"});
 
-        std::vector<columnar::AggSpec> specs{{columnar::AggType::Min, "EventDate"},
-                                             {columnar::AggType::Max, "EventDate"}};
+    //     std::vector<AggSpec> specs{{AggType::Min, "EventDate"}, {AggType::Max, "EventDate"}};
 
-        auto agg = std::make_unique<columnar::GlobalAggOperator>(std::move(scan), std::move(specs));
+    //     auto agg = std::make_unique<GlobalAggOperator>(std::move(scan), std::move(specs));
 
-        auto start = std::chrono::steady_clock::now();
-        columnar::Batch* output_batch = agg->next();
-        auto end = std::chrono::steady_clock::now();
+    //     auto start = std::chrono::steady_clock::now();
+    //     Batch* output_batch = agg->next();
+    //     auto end = std::chrono::steady_clock::now();
 
-        for (size_t i = 0; i < output_batch->column_count_; ++i) {
-            std::cout << columnar::CsvWriter::convert_to_date(
-                             static_cast<int32_t>(output_batch->columns_[i].get_value<int64_t>(0)))
-                      << ',';
-        }
+    //     for (size_t i = 0; i < output_batch->column_count_; ++i) {
+    //         std::cout << CsvWriter::convert_to_date(
+    //                          static_cast<int32_t>(output_batch->columns_[i].get_value<int64_t>(0)))
+    //                   << ' ';
+    //     }
 
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
+    //     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    //     std::cout << "\nTime: " << ms << " ms" << std::endl;
+    // }
 
     return 0;
 }

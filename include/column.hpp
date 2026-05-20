@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 #include "config.hpp"
 #include "data_type.hpp"
@@ -43,14 +44,123 @@ public:
         }
     }
 
+    Column(Type type, size_t idx, int64_t literal) : type_(type), idx_(idx) {
+        switch (type_) {
+        case Type::Int16: {
+            allocate<int16_t>();
+            int16_t* p = static_cast<int16_t*>(data_);
+            for (size_t i = 0; i < kColumnCapacity; ++i) {
+                p[i] = static_cast<int16_t>(literal);
+                head_++;
+            }
+            break;
+        }
+        case Type::Int32: {
+            allocate<int32_t>();
+            int32_t* p = static_cast<int32_t*>(data_);
+            for (size_t i = 0; i < kColumnCapacity; ++i) {
+                p[i] = static_cast<int32_t>(literal);
+                head_++;
+            }
+            break;
+        }
+        case Type::Int64: {
+            allocate<int64_t>();
+            int64_t* p = static_cast<int64_t*>(data_);
+            for (size_t i = 0; i < kColumnCapacity; ++i) {
+                p[i] = static_cast<int64_t>(literal);
+                head_++;
+            }
+            break;
+        }
+        case Type::Date:
+            allocate<int32_t>();
+            {
+                int32_t* p = static_cast<int32_t*>(data_);
+                for (size_t i = 0; i < kColumnCapacity; ++i) {
+                    p[i] = static_cast<int32_t>(literal);
+                    head_++;
+                }
+                break;
+            }
+        case Type::Timestamp: {
+            allocate<int64_t>();
+            int64_t* p = static_cast<int64_t*>(data_);
+            for (size_t i = 0; i < kColumnCapacity; ++i) {
+                p[i] = static_cast<int64_t>(literal);
+                head_++;
+            }
+            break;
+        }
+        default:
+            // error
+            break;
+        }
+    }
+
+    Column(Type type, size_t idx, std::string str) : type_(type), idx_(idx) {
+        // ASS string type
+        allocate_string();
+        char* p = static_cast<char*>(data_);
+        int32_t pos = 0;
+        while (str.size() * capacity_ >= kStringCapacity * capacity_) {
+            reallocate_string();
+        }
+        for (size_t i = 0; i < capacity_; ++i) {
+            offsets_[i] = pos;
+            std::memcpy(p + pos, str.data(), str.size());
+            pos += static_cast<int32_t>(str.size());
+            head_++;
+        }
+        offsets_[capacity_] = pos;
+    }
+
     ~Column() {
         std::free(data_);
         std::free(offsets_);
     }
 
-    Column(const Column&) = delete;
+    Column(const Column& other)
+        : capacity_(other.capacity_), head_(other.head_), type_(other.type_), idx_(other.idx_) {
+        switch (type_) {
+        case Type::Int16: {
+            allocate<int16_t>();
+            std::memcpy(data_, other.data_, head_ * sizeof(int16_t));
+            break;
+        }
+        case Type::Int32: {
+            allocate<int32_t>();
+            std::memcpy(data_, other.data_, head_ * sizeof(int32_t));
+            break;
+        }
+        case Type::Int64: {
+            allocate<int64_t>();
+            std::memcpy(data_, other.data_, head_ * sizeof(int64_t));
+            break;
+        }
+        case Type::String: {
+            allocate_string();
+            size_t bytes = static_cast<size_t>(other.offsets_[other.head_]);
+            std::memcpy(data_, other.data_, bytes);
+            std::memcpy(offsets_, other.offsets_, (head_ + 1) * sizeof(int32_t));
+            break;
+        }
+        case Type::Date: {
+            allocate<int16_t>();
+            std::memcpy(data_, other.data_, head_ * sizeof(int32_t));
+            offsets_ = nullptr;
+            break;
+        }
+        case Type::Timestamp: {
+            allocate<int16_t>();
+            std::memcpy(data_, other.data_, head_ * sizeof(int64_t));
+            offsets_ = nullptr;
+            break;
+        }
+        }
+    }
 
-    Column& operator=(const Column&) = delete;
+    Column& operator=(const Column& other) = delete;
 
     Column(Column&& other) noexcept {
         data_ = other.data_;

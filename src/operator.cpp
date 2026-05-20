@@ -28,13 +28,18 @@ Batch* ScanOperator::next() {
     return &batch_;
 }
 
-Schema ScanOperator::get_schema() const {
+const Schema& ScanOperator::get_schema() const {
     return schema_;
 }
 
 GlobalAggOperator::GlobalAggOperator(std::unique_ptr<IOperator>&& child, std::vector<AggSpec> specs)
-    : child_(std::move(child)), schema_(child_->get_schema()), specs_(std::move(specs)),
-      states_(specs_.size()) {
+    : child_(std::move(child)), specs_(std::move(specs)), states_(specs_.size()) {
+    std::vector<std::string> needed_columns;
+    for (const auto& spec : specs_) {
+        result_schema_.add_column(spec.name, Type::Int64);
+        needed_columns.push_back(spec.name);
+    }
+    result_batch_ = Batch(result_schema_, needed_columns);
 }
 
 Batch* GlobalAggOperator::next() {
@@ -54,52 +59,24 @@ Batch* GlobalAggOperator::next() {
                 break;
             }
             case AggType::CountDistinct: {
-                const Column& column = batch->get_column_by_idx(schema_.get_column_index(spec.name));
-                const std::vector<size_t>& active_rows = batch->active_rows_;
-                dispatch_agg<AggCountDistinct>(column, state, active_rows);
-                break;
-            }
-            case AggType::StrCountDistinct: {
-                const Column& column = batch->get_column_by_idx(schema_.get_column_index(spec.name));
-                const std::vector<size_t>& active_rows = batch->active_rows_;
-                dispatch_agg<AggCountDistinct>(column, state, active_rows);
+                dispatch_agg<AggCountDistinct>(*batch, state, spec.expr);
                 break;
             }
             case AggType::Sum: {
-                const Column& column = batch->get_column_by_idx(schema_.get_column_index(spec.name));
-                const std::vector<size_t>& active_rows = batch->active_rows_;
-                dispatch_agg<AggSum>(column, state, active_rows);
+                dispatch_agg<AggSum>(*batch, state, spec.expr);
                 break;
             }
             case AggType::Min: {
-                const Column& column = batch->get_column_by_idx(schema_.get_column_index(spec.name));
-                const std::vector<size_t>& active_rows = batch->active_rows_;
-                dispatch_agg<AggMin>(column, state, active_rows);
-                break;
-            }
-            case AggType::StrMin: {
-                const Column& column = batch->get_column_by_idx(schema_.get_column_index(spec.name));
-                const std::vector<size_t>& active_rows = batch->active_rows_;
-                dispatch_agg<AggMin>(column, state, active_rows);
+                dispatch_agg<AggMin>(*batch, state, spec.expr);
                 break;
             }
             case AggType::Max: {
-                const Column& column = batch->get_column_by_idx(schema_.get_column_index(spec.name));
-                const std::vector<size_t>& active_rows = batch->active_rows_;
-                dispatch_agg<AggMax>(column, state, active_rows);
-                break;
-            }
-            case AggType::StrMax: {
-                const Column& column = batch->get_column_by_idx(schema_.get_column_index(spec.name));
-                const std::vector<size_t>& active_rows = batch->active_rows_;
-                dispatch_agg<AggMax>(column, state, active_rows);
+                dispatch_agg<AggMax>(*batch, state, spec.expr);
                 break;
             }
             case AggType::Avg: {
-                const Column& column = batch->get_column_by_idx(schema_.get_column_index(spec.name));
-                const std::vector<size_t>& active_rows = batch->active_rows_;
                 AggCount{}(batch->row_count_, state);
-                dispatch_agg<AggSum>(column, state, active_rows);
+                dispatch_agg<AggSum>(*batch, state, spec.expr);
                 break;
             }
             }
@@ -123,12 +100,12 @@ Batch* GlobalAggOperator::next() {
     return &result_batch_;
 }
 
-Schema GlobalAggOperator::get_schema() const {
-    return schema_;
+const Schema& GlobalAggOperator::get_schema() const {
+    return result_schema_;
 }
 
 FilterOperator::FilterOperator(std::unique_ptr<IOperator>&& child,
-                               std::unique_ptr<IExpression>&& filter)
+                               std::unique_ptr<IFilterExpression>&& filter)
     : child_(std::move(child)), filter_(std::move(filter)) {
 }
 
@@ -148,10 +125,9 @@ Batch* FilterOperator::next() {
     return batch;
 }
 
-Schema FilterOperator::get_schema() const {
+const Schema& FilterOperator::get_schema() const {
     return child_->get_schema();
 }
-
 
 void FilterOperator::apply_mask(Batch* batch, std::vector<uint8_t>& mask) {
     size_t new_row_count = 0;
