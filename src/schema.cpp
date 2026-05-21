@@ -17,6 +17,14 @@ Type Schema::get_column_type(size_t idx) const {
     return columns_[idx].type;
 }
 
+Type Schema::get_column_type(const std::string& name) const {
+    if (name == "*") {
+        return Type::Int64;
+    }
+    ASS(names_to_types_.contains(name), "no such name in schema");
+    return names_to_types_.at(name);
+}
+
 const std::string& Schema::get_column_name(size_t idx) const {
     ASS(idx < columns_.size(), "index out of range");
     return columns_[idx].name;
@@ -34,6 +42,7 @@ size_t Schema::get_column_index(const std::string& name) const {
 void Schema::add_column(const std::string& name, Type type) {
     columns_.emplace_back(name, type);
     names_to_indices_.emplace(name, column_count_);
+    names_to_types_.emplace(name, type);
     column_count_++;
 }
 

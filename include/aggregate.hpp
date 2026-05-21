@@ -7,6 +7,7 @@
 #include <unordered_set>
 
 #include "column.hpp"
+#include "data_type.hpp"
 #include "expression.hpp"
 
 namespace columnar {
@@ -21,7 +22,7 @@ enum class AggType {
 };
 
 struct AggSpec {
-    AggType type;
+    AggType agg_type;
     std::string name;
     std::unique_ptr<IValueExpression> expr;
 };
@@ -40,22 +41,34 @@ struct AggState {
     void finalize(Column& column, AggType type) const {
         switch (type) {
         case AggType::Count:
-            column.push_value(count);
+            column.push(count);
             break;
         case AggType::CountDistinct:
-            column.push_value(distinct.size());
+            if (column.type() == Type::String) {
+                column.push_string(std::to_string(str_distinct.size()));
+                break;
+            }
+            column.push(distinct.size());
             break;
         case AggType::Sum:
-            column.push_value(static_cast<int64_t>(sum));
+            column.push(static_cast<int64_t>(sum));
             break;
         case AggType::Min:
-            column.push_value(min);
+            if (column.type() == Type::String) {
+                column.push_string(str_min);
+                break;
+            }
+            column.push(min);
             break;
         case AggType::Max:
-            column.push_value(max);
+            if (column.type() == Type::String) {
+                column.push_string(str_max);
+                break;
+            }
+            column.push(max);
             break;
         case AggType::Avg:
-            column.push_value(static_cast<int64_t>(sum / count));
+            column.push(static_cast<int64_t>(sum / count));
             break;
         }
     }
@@ -64,7 +77,7 @@ struct AggState {
 template <template <typename> class AggFn>
 void dispatch_agg(const Batch& batch, AggState& state,
                   const std::unique_ptr<IValueExpression>& expr) {
-    const Column& column = expr->evaluate(batch);
+    Column column(expr->evaluate(batch));
     switch (column.type()) {
     case Type::Int16:
         AggFn<int16_t>{}(column, state, batch.active_rows_);

@@ -14,28 +14,19 @@ enum class Type : int8_t {
 };
 
 template <typename T>
-struct TypeToEnum {
-};
+constexpr bool type_matches(Type type) {
+    if constexpr (std::is_same_v<T, int16_t>) {
+        return type == Type::Int16;
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        return type == Type::Int32 || type == Type::Date;
+    } else if constexpr (std::is_same_v<T, int64_t>) {
+        return type == Type::Int64 || type == Type::Timestamp;
+    } else if constexpr (std::is_same_v<T, std::string>) {
+        return type == Type::String;
+    }
 
-template <>
-struct TypeToEnum<int16_t> {
-    static constexpr Type value = Type::Int16;
-};
-
-template <>
-struct TypeToEnum<int32_t> {
-    static constexpr Type value = Type::Int32;
-};
-
-template <>
-struct TypeToEnum<int64_t> {
-    static constexpr Type value = Type::Int64;
-};
-
-template <>
-struct TypeToEnum<std::string> {
-    static constexpr Type value = Type::String;
-};
+    return false;
+}
 
 inline const char* to_string(Type type) {
     switch (type) {

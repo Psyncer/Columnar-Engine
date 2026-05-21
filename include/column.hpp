@@ -6,6 +6,7 @@
 #include <cstring>
 #include <string>
 
+#include "assert.hpp"
 #include "config.hpp"
 #include "data_type.hpp"
 
@@ -115,11 +116,6 @@ public:
         offsets_[capacity_] = pos;
     }
 
-    ~Column() {
-        std::free(data_);
-        std::free(offsets_);
-    }
-
     Column(const Column& other)
         : capacity_(other.capacity_), head_(other.head_), type_(other.type_), idx_(other.idx_) {
         switch (type_) {
@@ -146,21 +142,19 @@ public:
             break;
         }
         case Type::Date: {
-            allocate<int16_t>();
+            allocate<int32_t>();
             std::memcpy(data_, other.data_, head_ * sizeof(int32_t));
             offsets_ = nullptr;
             break;
         }
         case Type::Timestamp: {
-            allocate<int16_t>();
+            allocate<int64_t>();
             std::memcpy(data_, other.data_, head_ * sizeof(int64_t));
             offsets_ = nullptr;
             break;
         }
         }
     }
-
-    Column& operator=(const Column& other) = delete;
 
     Column(Column&& other) noexcept {
         data_ = other.data_;
@@ -175,6 +169,13 @@ public:
         other.capacity_ = 0;
         other.head_ = 0;
     }
+
+    ~Column() {
+        std::free(data_);
+        std::free(offsets_);
+    }
+
+    Column& operator=(const Column& other) = delete;
 
     Column& operator=(Column&& other) noexcept {
         if (this == &other) {
@@ -217,7 +218,32 @@ public:
     }
 
     template <typename T>
+    void push(T value) {
+        switch (type_) {
+        case Type::Int16:
+            push_value<int16_t>(static_cast<int16_t>(value));
+            break;
+        case Type::Int32:
+            push_value<int32_t>(static_cast<int32_t>(value));
+            break;
+        case Type::Int64:
+            push_value<int64_t>(static_cast<int64_t>(value));
+            break;
+        case Type::Date:
+            push_value<int32_t>(static_cast<int32_t>(value));
+            break;
+        case Type::Timestamp:
+            push_value<int64_t>(static_cast<int64_t>(value));
+            break;
+        default:
+            // wrong type
+            break;
+        }
+    }
+
+    template <typename T>
     void push_value(T value) {
+        ASS(type_matches<T>(type_), "wrong type");
         if (head_ + 1 >= capacity_) {
             reallocate<T>();
         }

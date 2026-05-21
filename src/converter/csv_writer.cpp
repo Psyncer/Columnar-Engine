@@ -1,101 +1,104 @@
 #include <cstdint>
 #include <expected>
-#include <fstream>
 #include <string>
 
-#include "assert.hpp"
 #include "batch.hpp"
 #include "csv_writer.hpp"
-#include "schema.hpp"
 
 namespace columnar {
 
-CsvWriter CsvWriter::open_csv_to_write(const std::string& path, const Schema& schema) {
-    std::ofstream file(path);
-    ASS(file.is_open(), "file not found");
+// CsvWriter CsvWriter::open_csv_to_write(const std::string& path, const Schema& schema) {
+//     std::ofstream file(path);
+//     ASS(file.is_open(), "file not found");
 
-    CsvWriter writer(std::move(file), schema);
+//     CsvWriter writer(std::move(file), schema);
 
-    return writer;
-}
+//     return writer;
+// }
 
-CsvWriter::CsvWriter(std::ofstream&& file, const Schema& schema)
-    : file_(std::move(file)), schema_(schema) {
-}
+// CsvWriter::CsvWriter(std::ofstream&& file, const Schema& schema)
+//     : file_(std::move(file)), schema_(schema) {
+// }
 
 void CsvWriter::write_batch(const Batch& batch) {
     // breaks if row_count is greater than
     // the ACTUAL number of rows in a batch,
     // need to assert somewhere
 
-    size_t row_count = batch.get_row_count();
-    size_t column_count = schema_.get_column_count();
+    size_t row_count = batch.row_count_;
+    size_t column_count = batch.column_count_;
 
     for (size_t row = 0; row < row_count; ++row) {
         for (size_t col = 0; col < column_count; ++col) {
-            const BatchColumn& column_data = batch.get_column(col);
-            Type type = schema_.get_column(col).type_;
+            const Column& column = batch.columns_[col];
+            Type type = column.type();
 
-            if (type == Type::Int16) {
-                const auto& column = column_data.get<int16_t>();
-                file_ << column[row];
-            } else if (type == Type::Int32) {
-                const auto& column = column_data.get<int32_t>();
-                file_ << column[row];
-            } else if (type == Type::Int64) {
-                const auto& column = column_data.get<int64_t>();
-                file_ << column[row];
-            } else if (type == Type::String) {
-                const auto& column = column_data.get<std::string>();
-                file_ << escape_csv_field(column[row]);
-            } else if (type == Type::Date) {
-                const auto& column = column_data.get<int32_t>();
-                file_ << convert_to_date(column[row]);
-            } else if (type == Type::Timestamp) {
-                const auto& column = column_data.get<int64_t>();
-                file_ << convert_to_timestamp(column[row]);
-            } else if (type == Type::Char) {
-                const auto& column = column_data.get<char>();
-                file_ << column[row];
+            switch (type) {
+            case Type::Int16: {
+                auto value = column.get_value<int16_t>(row);
+                std::cout << value << ' ';
+                break;
             }
-
-            if (col < schema_.get_column_count() - 1) {
-                file_ << ',';
+            case Type::Int32: {
+                auto value = column.get_value<int32_t>(row);
+                std::cout << value << ' ';
+                break;
+            }
+            case Type::Int64: {
+                auto value = column.get_value<int64_t>(row);
+                std::cout << value << ' ';
+                break;
+            }
+            case Type::String: {
+                auto value = column.get_string(row);
+                std::cout << value << ' ';
+                break;
+            }
+            case Type::Date: {
+                auto value = column.get_value<int32_t>(row);
+                std::cout << convert_to_date(value) << ' ';
+                break;
+            }
+            case Type::Timestamp: {
+                auto value = column.get_value<int64_t>(row);
+                std::cout << convert_to_timestamp(value) << ' ';
+                break;
+            }
             }
         }
 
-        file_ << '\n';
+        std::cout << '\n';
     }
 }
 
-void CsvWriter::write_schema(const std::string& path) {
-    std::ofstream file(path);
-    for (size_t i = 0; i < schema_.get_column_count(); ++i) {
-        file << schema_.get_column(i).name_ << "," << schema_.get_column(i).type_ << '\n';
-    }
-}
+// void CsvWriter::write_schema(const std::string& path) {
+//     std::ofstream file(path);
+//     for (size_t i = 0; i < schema_.get_column_count(); ++i) {
+//         file << schema_.get_column_name(i) << "," << schema_.get_column_type(i) << '\n';
+//     }
+// }
 
-std::string CsvWriter::escape_csv_field(const std::string& field) {
-    bool needs_quotes = field.find(',') != std::string::npos ||
-                        field.find('"') != std::string::npos ||
-                        field.find('\n') != std::string::npos;
+// std::string CsvWriter::escape_csv_field(const std::string& field) {
+//     bool needs_quotes = field.find(',') != std::string::npos ||
+//                         field.find('"') != std::string::npos ||
+//                         field.find('\n') != std::string::npos;
 
-    if (!needs_quotes) {
-        return field;
-    }
+//     if (!needs_quotes) {
+//         return field;
+//     }
 
-    std::string result = "\"";
-    for (char c : field) {
-        if (c == '"') {
-            result += "\"\"";
-        } else {
-            result += c;
-        }
-    }
-    result += '"';
+//     std::string result = "\"";
+//     for (char c : field) {
+//         if (c == '"') {
+//             result += "\"\"";
+//         } else {
+//             result += c;
+//         }
+//     }
+//     result += '"';
 
-    return result;
-}
+//     return result;
+// }
 
 // FIX
 std::string CsvWriter::convert_to_date(int32_t days) {

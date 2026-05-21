@@ -53,7 +53,7 @@ Batch* GlobalAggOperator::next() {
             const AggSpec& spec = specs_[i];
             AggState& state = states_[i];
 
-            switch (spec.type) {
+            switch (spec.agg_type) {
             case AggType::Count: {
                 AggCount{}(batch->row_count_, state);
                 break;
@@ -85,8 +85,15 @@ Batch* GlobalAggOperator::next() {
 
     Schema result_schema;
     std::vector<std::string> needed_columns;
+    const Schema& schema = child_->get_schema();
     for (const auto& spec : specs_) {
-        result_schema.add_column(spec.name, Type::Int64);
+        if (schema.get_column_type(spec.name) == Type::String) {
+            result_schema.add_column(spec.name, Type::String);
+        } else if (spec.agg_type == AggType::Min || spec.agg_type == AggType::Max || spec.agg_type == AggType::Avg){
+            result_schema.add_column(spec.name, schema.get_column_type(spec.name));
+        }  else {
+            result_schema.add_column(spec.name, Type::Int64);
+        }
         needed_columns.push_back(spec.name);
     }
 
@@ -94,7 +101,7 @@ Batch* GlobalAggOperator::next() {
     result_batch_.row_count_ = 1;
 
     for (size_t i = 0; i < specs_.size(); ++i) {
-        states_[i].finalize(result_batch_.columns_[i], specs_[i].type);
+        states_[i].finalize(result_batch_.columns_[i], specs_[i].agg_type);
     }
 
     return &result_batch_;
