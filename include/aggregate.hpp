@@ -32,6 +32,7 @@ struct AggState {
     __int128 sum = 0;
     int64_t min = std::numeric_limits<int64_t>::max();
     int64_t max = std::numeric_limits<int64_t>::min();
+    std::pair<int64_t, int64_t> avg;
     std::unordered_set<int64_t> distinct;
 
     std::string str_min = std::string(16, char(0xFF));

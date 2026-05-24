@@ -15,9 +15,13 @@ ColumnRef::ColumnRef(std::string name) : name_(std::move(name)) {
 
 Column ColumnRef::evaluate(const Batch& batch) {
     size_t idx = batch.schema_.get_column_index(name_);
-    Column column(batch.columns_[batch.idx_to_pos_.at(idx)]);
+    Column column(batch.get_column_by_idx(idx));
 
     return column;
+}
+
+std::string ColumnRef::name() const {
+    return name_;
 }
 
 Column Literal::evaluate([[maybe_unused]] const Batch& batch) {

@@ -21,8 +21,11 @@ using columnar::CsvReader;
 using columnar::CsvWriter;
 using columnar::FilterOperator;
 using columnar::GlobalAggOperator;
+using columnar::GroupByOperator;
+using columnar::IValueExpression;
 using columnar::Literal;
 using columnar::NotEqual;
+using columnar::OrderByOperator;
 using columnar::ScanOperator;
 using columnar::Schema;
 
@@ -106,6 +109,26 @@ void convert(const std::string& csv_schema, const std::string& csv_data,
 template <typename... Ts>
 std::vector<AggSpec> make_aggs(Ts&&... ts) {
     std::vector<AggSpec> v;
+    v.reserve(sizeof...(Ts));
+
+    (v.emplace_back(std::forward<Ts>(ts)), ...);
+
+    return v;
+}
+
+template <typename... Ts>
+std::vector<std::unique_ptr<IValueExpression>> make_groups(Ts&&... ts) {
+    std::vector<std::unique_ptr<IValueExpression>> v;
+    v.reserve(sizeof...(Ts));
+
+    (v.emplace_back(std::forward<Ts>(ts)), ...);
+
+    return v;
+}
+
+template <typename... Ts>
+std::vector<OrderByOperator::OrderSpec> order_specs(Ts&&... ts) {
+    std::vector<OrderByOperator::OrderSpec> v;
     v.reserve(sizeof...(Ts));
 
     (v.emplace_back(std::forward<Ts>(ts)), ...);
@@ -282,6 +305,36 @@ int main(int argc, char* argv[]) {
             make_aggs(
                 AggSpec(AggType::Min, "EventDate", std::make_unique<ColumnRef>("EventDate")),
                 AggSpec(AggType::Max, "EventDate", std::make_unique<ColumnRef>("EventDate"))));
+
+        auto start = std::chrono::steady_clock::now();
+        Batch* output_batch = plan->next();
+        auto end = std::chrono::steady_clock::now();
+
+        CsvWriter::write_batch(*output_batch);
+
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        std::cout << "\nTime: " << ms << " ms" << std::endl;
+    }
+
+    // ==============
+    // Query 8:
+    // SELECT AdvEngineID, COUNT(*) FROM hits WHERE AdvEngineID <> 0 GROUP BY AdvEngineID ORDER BY
+    // COUNT(*) DESC;
+    // ==============
+    {
+        std::cout << "\nQuery 8" << std::endl;
+
+        auto plan = std::make_unique<OrderByOperator>(
+            std::make_unique<GroupByOperator>(
+                std::make_unique<FilterOperator>(
+                    std::make_unique<ScanOperator>(output_file,
+                                                   std::vector<std::string>{"AdvEngineID"}),
+                    std::make_unique<NotEqual>(std::make_unique<ColumnRef>("AdvEngineID"),
+                                               std::make_unique<Literal>(0))),
+                make_groups(std::make_unique<ColumnRef>("AdvEngineID")),
+                make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*")))),
+            order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("*"),
+                                                   OrderByOperator::OrderDirection::Desc}));
 
         auto start = std::chrono::steady_clock::now();
         Batch* output_batch = plan->next();

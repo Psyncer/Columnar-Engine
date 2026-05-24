@@ -25,10 +25,9 @@ void CsvWriter::write_batch(const Batch& batch) {
     // the ACTUAL number of rows in a batch,
     // need to assert somewhere
 
-    size_t row_count = batch.row_count_;
-    size_t column_count = batch.column_count_;
+    size_t column_count = batch.column_count_;  
 
-    for (size_t row = 0; row < row_count; ++row) {
+    for (const auto& row : batch.active_rows_) {
         for (size_t col = 0; col < column_count; ++col) {
             const Column& column = batch.columns_[col];
             Type type = column.type();

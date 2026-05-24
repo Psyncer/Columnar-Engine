@@ -22,6 +22,8 @@ public:
     ColumnRef(std::string name);
 
     Column evaluate(const Batch& batch) override;
+
+    std::string name() const;
 };
 
 class Literal : public IValueExpression {

@@ -65,21 +65,48 @@ private:
 };
 
 class GroupByOperator : public IOperator {
-    using GroupKey = std::vector<int64_t>;
-    using GroupAggState = std::vector<AggState>;
+    struct GroupKey {
+        std::vector<int64_t> ints;
+        std::vector<std::string> strs;
+
+        bool operator==(const GroupKey& other) const {
+            return ints == other.ints && strs == other.strs;
+        }
+    };
+
+    struct KeyHash {
+        size_t operator()(const GroupKey& key) const {
+            size_t seed = 0;
+
+            for (int64_t v : key.ints) {
+                hash_combine(seed, std::hash<int64_t>{}(v));
+            }
+
+            for (const auto& s : key.strs) {
+                hash_combine(seed, std::hash<std::string>{}(s));
+            }
+
+            return seed;
+        }
+
+        static void hash_combine(size_t& seed, size_t v) {
+            seed ^= v + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        }
+    };
 
 private:
     std::unique_ptr<IOperator> child_;
-    std::vector<std::shared_ptr<IValueExpression>> exprs_;
-    std::vector<AggSpec> agg_specs_;
+    std::vector<std::unique_ptr<IValueExpression>> group_exprs_;
+    std::vector<AggSpec> specs_;
+    std::unordered_map<GroupKey, std::vector<AggState>, KeyHash> groups_;
     Batch result_batch_;
-    std::unordered_map<GroupKey, GroupAggState> hash_table_;
+    Schema result_schema_;
     bool done_ = false;
 
 public:
     GroupByOperator(std::unique_ptr<IOperator>&& child,
-                    std::vector<std::shared_ptr<IValueExpression>> exprs,
-                    std::vector<AggSpec> agg_specs);
+                    std::vector<std::unique_ptr<IValueExpression>> group_exprs,
+                    std::vector<AggSpec> specs);
 
     Batch* next() override;
 
@@ -87,22 +114,26 @@ public:
 };
 
 class OrderByOperator : public IOperator {
+public:
     enum class OrderDirection {
         Desc,
         Asc,
     };
 
     struct OrderSpec {
+        std::unique_ptr<IValueExpression> expr;
         OrderDirection dir;
-        std::shared_ptr<IValueExpression> expr;
     };
 
 private:
     std::unique_ptr<IOperator> child_;
     std::vector<OrderSpec> order_specs_;
+    Batch accumulated_batch_;
+    Batch result_batch_;
+    bool done_ = false;
 
 public:
-    OrderByOperator(std::unique_ptr<IOperator> child, std::vector<OrderSpec> Order_specs);
+    OrderByOperator(std::unique_ptr<IOperator> child, std::vector<OrderSpec> order_specs);
 
     Batch* next() override;
 

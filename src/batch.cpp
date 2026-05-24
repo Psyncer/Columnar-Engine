@@ -21,6 +21,7 @@ Batch::Batch(Batch&& other) noexcept {
     column_count_ = other.column_count_;
     row_count_ = other.row_count_;
     idx_to_pos_ = other.idx_to_pos_;
+    active_rows_ = other.active_rows_;
 
     other.column_count_ = 0;
     other.row_count_ = 0;
@@ -36,6 +37,9 @@ Batch& Batch::operator=(Batch&& other) noexcept {
     columns_ = std::move(other.columns_);
     column_count_ = other.column_count_;
     row_count_ = other.row_count_;
+    idx_to_pos_ = other.idx_to_pos_;
+
+    active_rows_ = other.active_rows_;
 
     other.column_count_ = 0;
     other.row_count_ = 0;
@@ -43,7 +47,7 @@ Batch& Batch::operator=(Batch&& other) noexcept {
     return *this;
 }
 
-const Column& Batch::get_column_by_idx(size_t idx) const{
+const Column& Batch::get_column_by_idx(size_t idx) const {
     return columns_[idx_to_pos_.at(idx)];
 }
 
