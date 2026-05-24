@@ -16,6 +16,7 @@ using columnar::AggType;
 using columnar::Batch;
 using columnar::ColumnarWriter;
 using columnar::ColumnRef;
+using columnar::Compare;
 using columnar::ConversionBatch;
 using columnar::CsvReader;
 using columnar::CsvWriter;
@@ -25,7 +26,6 @@ using columnar::GroupByOperator;
 using columnar::IValueExpression;
 using columnar::LimitOperator;
 using columnar::Literal;
-using columnar::NotEqual;
 using columnar::OrderByOperator;
 using columnar::ScanOperator;
 using columnar::Schema;
@@ -189,8 +189,8 @@ int main(int argc, char* argv[]) {
             std::make_unique<FilterOperator>(
                 std::make_unique<ScanOperator>(output_file,
                                                std::vector<std::string>{"AdvEngineID"}),
-                std::make_unique<NotEqual>(std::make_unique<ColumnRef>("AdvEngineID"),
-                                           std::make_unique<Literal>(0))),
+                std::make_unique<Compare>(std::make_unique<ColumnRef>("AdvEngineID"),
+                                          std::make_unique<Literal>(0), Compare::Cmp::NE)),
             make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"))));
 
         auto start = std::chrono::steady_clock::now();
@@ -330,8 +330,8 @@ int main(int argc, char* argv[]) {
                 std::make_unique<FilterOperator>(
                     std::make_unique<ScanOperator>(output_file,
                                                    std::vector<std::string>{"AdvEngineID"}),
-                    std::make_unique<NotEqual>(std::make_unique<ColumnRef>("AdvEngineID"),
-                                               std::make_unique<Literal>(0))),
+                    std::make_unique<Compare>(std::make_unique<ColumnRef>("AdvEngineID"),
+                                              std::make_unique<Literal>(0), Compare::Cmp::NE)),
                 make_groups(std::make_unique<ColumnRef>("AdvEngineID")),
                 make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*")))),
             order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("*"),
@@ -427,8 +427,9 @@ int main(int argc, char* argv[]) {
                     std::make_unique<FilterOperator>(
                         std::make_unique<ScanOperator>(
                             output_file, std::vector<std::string>{"MobilePhoneModel", "UserID"}),
-                        std::make_unique<NotEqual>(std::make_unique<ColumnRef>("MobilePhoneModel"),
-                                                   std::make_unique<Literal>(""))),
+                        std::make_unique<Compare>(std::make_unique<ColumnRef>("MobilePhoneModel"),
+                                                  std::make_unique<Literal>(""),
+                                                  columnar::Compare::Cmp::NE)),
                     make_groups(std::make_unique<ColumnRef>("MobilePhoneModel")),
                     make_aggs(AggSpec(AggType::CountDistinct, "UserID",
                                       std::make_unique<ColumnRef>("UserID"), "u"))),
@@ -461,8 +462,8 @@ int main(int argc, char* argv[]) {
                         std::make_unique<ScanOperator>(
                             output_file,
                             std::vector<std::string>{"MobilePhone", "MobilePhoneModel", "UserID"}),
-                        std::make_unique<NotEqual>(std::make_unique<ColumnRef>("MobilePhoneModel"),
-                                                   std::make_unique<Literal>(""))),
+                        std::make_unique<Compare>(std::make_unique<ColumnRef>("MobilePhoneModel"),
+                                                  std::make_unique<Literal>(""), Compare::Cmp::NE)),
                     make_groups(std::make_unique<ColumnRef>("MobilePhone"),
                                 std::make_unique<ColumnRef>("MobilePhoneModel")),
                     make_aggs(AggSpec(AggType::CountDistinct, "UserID",
@@ -495,13 +496,233 @@ int main(int argc, char* argv[]) {
                     std::make_unique<FilterOperator>(
                         std::make_unique<ScanOperator>(output_file,
                                                        std::vector<std::string>{"SearchPhrase"}),
-                        std::make_unique<NotEqual>(std::make_unique<ColumnRef>("SearchPhrase"),
-                                                   std::make_unique<Literal>(""))),
+                        std::make_unique<Compare>(std::make_unique<ColumnRef>("SearchPhrase"),
+                                                  std::make_unique<Literal>(""), Compare::Cmp::NE)),
                     make_groups(std::make_unique<ColumnRef>("SearchPhrase")),
                     make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
                 order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("c"),
                                                        OrderByOperator::OrderDirection::Desc})),
             10);
+
+        auto start = std::chrono::steady_clock::now();
+        while (Batch* output_batch = plan->next()) {
+            CsvWriter::write_batch(*output_batch);
+        }
+        auto end = std::chrono::steady_clock::now();
+
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        std::cout << "\nTime: " << ms << " ms" << std::endl;
+    }
+
+    // ==============
+    // Query 14:
+    // SELECT SearchPhrase, COUNT(DISTINCT UserID) AS u
+    // FROM hits WHERE SearchPhrase <> ''
+    // GROUP BY SearchPhrase ORDER BY u DESC LIMIT 10;
+    // ==============
+    {
+        std::cout << "\nQuery 14" << std::endl;
+
+        auto plan = std::make_unique<LimitOperator>(
+            std::make_unique<OrderByOperator>(
+                std::make_unique<GroupByOperator>(
+                    std::make_unique<FilterOperator>(
+                        std::make_unique<ScanOperator>(
+                            output_file, std::vector<std::string>{"SearchPhrase", "UserID"}),
+                        std::make_unique<Compare>(std::make_unique<ColumnRef>("SearchPhrase"),
+                                                  std::make_unique<Literal>(""), Compare::Cmp::NE)),
+                    make_groups(std::make_unique<ColumnRef>("SearchPhrase")),
+                    make_aggs(AggSpec(AggType::CountDistinct, "UserID",
+                                      std::make_unique<ColumnRef>("UserID"), "u"))),
+                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("u"),
+                                                       OrderByOperator::OrderDirection::Desc})),
+            10);
+
+        auto start = std::chrono::steady_clock::now();
+        while (Batch* output_batch = plan->next()) {
+            CsvWriter::write_batch(*output_batch);
+        }
+        auto end = std::chrono::steady_clock::now();
+
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        std::cout << "\nTime: " << ms << " ms" << std::endl;
+    }
+
+    // ==============
+    // Query 15:
+    // SELECT SearchEngineID, SearchPhrase, COUNT(*) AS c
+    // FROM hits WHERE SearchPhrase <> ''
+    // GROUP BY SearchEngineID, SearchPhrase
+    // ORDER BY c DESC LIMIT 10;
+    // ==============
+    {
+        std::cout << "\nQuery 15" << std::endl;
+
+        auto plan = std::make_unique<LimitOperator>(
+            std::make_unique<OrderByOperator>(
+                std::make_unique<GroupByOperator>(
+                    std::make_unique<FilterOperator>(
+                        std::make_unique<ScanOperator>(
+                            output_file,
+                            std::vector<std::string>{"SearchEngineID", "SearchPhrase"}),
+                        std::make_unique<Compare>(std::make_unique<ColumnRef>("SearchPhrase"),
+                                                  std::make_unique<Literal>(""), Compare::Cmp::NE)),
+                    make_groups(std::make_unique<ColumnRef>("SearchEngineID"),
+                                std::make_unique<ColumnRef>("SearchPhrase")),
+                    make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
+                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("c"),
+                                                       OrderByOperator::OrderDirection::Desc})),
+            10);
+
+        auto start = std::chrono::steady_clock::now();
+        while (Batch* output_batch = plan->next()) {
+            CsvWriter::write_batch(*output_batch);
+        }
+        auto end = std::chrono::steady_clock::now();
+
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        std::cout << "\nTime: " << ms << " ms" << std::endl;
+    }
+
+    // ==============
+    // Query 16:
+    // SELECT UserID, COUNT(*) FROM hits
+    // GROUP BY UserID ORDER BY COUNT(*) DESC LIMIT 10;
+    // ==============
+    {
+        std::cout << "\nQuery 16" << std::endl;
+
+        auto plan = std::make_unique<LimitOperator>(
+            std::make_unique<OrderByOperator>(
+                std::make_unique<GroupByOperator>(
+                    std::make_unique<ScanOperator>(output_file, std::vector<std::string>{"UserID"}),
+                    make_groups(std::make_unique<ColumnRef>("UserID")),
+                    make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
+                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("c"),
+                                                       OrderByOperator::OrderDirection::Desc})),
+            10);
+
+        auto start = std::chrono::steady_clock::now();
+        while (Batch* output_batch = plan->next()) {
+            CsvWriter::write_batch(*output_batch);
+        }
+        auto end = std::chrono::steady_clock::now();
+
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        std::cout << "\nTime: " << ms << " ms" << std::endl;
+    }
+
+    // ==============
+    // Query 17:
+    // SELECT UserID, SearchPhrase, COUNT(*)
+    // FROM hits
+    // GROUP BY UserID, SearchPhrase
+    // ORDER BY COUNT(*) DESC LIMIT 10;
+    // ==============
+    {
+        std::cout << "\nQuery 17" << std::endl;
+
+        auto plan = std::make_unique<LimitOperator>(
+            std::make_unique<OrderByOperator>(
+                std::make_unique<GroupByOperator>(
+                    std::make_unique<ScanOperator>(
+                        output_file, std::vector<std::string>{"UserID", "SearchPhrase"}),
+                    make_groups(std::make_unique<ColumnRef>("UserID"),
+                                std::make_unique<ColumnRef>("SearchPhrase")),
+                    make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
+                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("c"),
+                                                       OrderByOperator::OrderDirection::Desc})),
+            10);
+
+        auto start = std::chrono::steady_clock::now();
+        while (Batch* output_batch = plan->next()) {
+            CsvWriter::write_batch(*output_batch);
+        }
+        auto end = std::chrono::steady_clock::now();
+
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        std::cout << "\nTime: " << ms << " ms" << std::endl;
+    }
+
+    // ==============
+    // Query 18:
+    // SELECT UserID, SearchPhrase, COUNT(*)
+    // FROM hits
+    // GROUP BY UserID, SearchPhrase
+    // LIMIT 10;
+    // ==============
+    {
+        std::cout << "\nQuery 18" << std::endl;
+
+        auto plan = std::make_unique<LimitOperator>(
+            std::make_unique<GroupByOperator>(
+                std::make_unique<ScanOperator>(output_file,
+                                               std::vector<std::string>{"UserID", "SearchPhrase"}),
+                make_groups(std::make_unique<ColumnRef>("UserID"),
+                            std::make_unique<ColumnRef>("SearchPhrase")),
+                make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
+            10);
+
+        auto start = std::chrono::steady_clock::now();
+        while (Batch* output_batch = plan->next()) {
+            CsvWriter::write_batch(*output_batch);
+        }
+        auto end = std::chrono::steady_clock::now();
+
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        std::cout << "\nTime: " << ms << " ms" << std::endl;
+    }
+
+    // ==============
+    // Query 19:
+    // SELECT UserID,
+    //        extract(minute FROM EventTime) AS m,
+    //        SearchPhrase,
+    //        COUNT(*)
+    // FROM hits
+    // GROUP BY UserID, m, SearchPhrase
+    // ORDER BY COUNT(*) DESC LIMIT 10;
+    // ==============
+    // {
+    //     std::cout << "\nQuery 19" << std::endl;
+
+    //     auto plan = std::make_unique<LimitOperator>(
+    //         std::make_unique<OrderByOperator>(
+    //             std::make_unique<GroupByOperator>(
+    //                 std::make_unique<ScanOperator>(
+    //                     output_file,
+    //                     std::vector<std::string>{"UserID", "EventTime", "SearchPhrase"}),
+    //                 make_groups(
+    //                     std::make_unique<ColumnRef>("UserID"),
+    //                     std::make_unique<ExtractMinute>(std::make_unique<ColumnRef>("EventTime")),
+    //                     std::make_unique<ColumnRef>("SearchPhrase")),
+    //                 make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
+    //             order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("c"),
+    //                                                    OrderByOperator::OrderDirection::Desc})),
+    //         10);
+
+    //     auto start = std::chrono::steady_clock::now();
+    //     while (Batch* output_batch = plan->next()) {
+    //         CsvWriter::write_batch(*output_batch);
+    //     }
+    //     auto end = std::chrono::steady_clock::now();
+
+    //     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    //     std::cout << "\nTime: " << ms << " ms" << std::endl;
+    // }
+
+    // ==============
+    // Query 20:
+    // SELECT UserID FROM hits WHERE UserID = 435090932899640449;
+    // ==============
+    {
+        std::cout << "\nQuery 20" << std::endl;
+
+        auto plan = std::make_unique<FilterOperator>(
+            std::make_unique<ScanOperator>(output_file, std::vector<std::string>{"UserID"}),
+            std::make_unique<Compare>(std::make_unique<ColumnRef>("UserID"),
+                                      std::make_unique<Literal>(435090932899640449LL),
+                                      Compare::Cmp::E));
 
         auto start = std::chrono::steady_clock::now();
         while (Batch* output_batch = plan->next()) {

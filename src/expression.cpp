@@ -32,11 +32,114 @@ Column Literal::evaluate([[maybe_unused]] const Batch& batch) {
     return Column(Type::Int64, 0, std::get<int64_t>(literal_));
 }
 
-NotEqual::NotEqual(std::unique_ptr<ColumnRef>&& left, std::unique_ptr<Literal>&& right)
+Add::Add(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right)
     : left_(std::move(left)), right_(std::move(right)) {
 }
 
-void NotEqual::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
+Column Add::evaluate(const Batch& batch) {
+    Column left(left_->evaluate(batch));
+    Column right(right_->evaluate(batch));  // assuming literal int64_t for now
+
+    // ASS types and sizes
+
+    Column column(left.type(), left.index());
+
+    switch (column.type()) {
+    case Type::Int16:
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int16_t>(
+                static_cast<int16_t>(left.get_value<int16_t>(i) + right.get_value<int64_t>(i)));
+        }
+        break;
+    case Type::Int32:
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int32_t>(
+                static_cast<int32_t>(left.get_value<int32_t>(i) + right.get_value<int64_t>(i)));
+        }
+        break;
+    case Type::Int64:
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int64_t>(
+                static_cast<int64_t>(left.get_value<int64_t>(i) + right.get_value<int64_t>(i)));
+        }
+        break;
+    case Type::Date:
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int32_t>(
+                static_cast<int32_t>(left.get_value<int32_t>(i) + right.get_value<int64_t>(i)));
+        }
+        break;
+    case Type::Timestamp:
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int64_t>(
+                static_cast<int64_t>(left.get_value<int64_t>(i) + right.get_value<int64_t>(i)));
+        }
+        break;
+    default:
+        // wrong type
+        break;
+    }
+
+    return column;
+}
+
+Sub::Sub(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right)
+    : left_(std::move(left)), right_(std::move(right)) {
+}
+
+Column Sub::evaluate(const Batch& batch) {
+    Column left(left_->evaluate(batch));
+    Column right(right_->evaluate(batch));  // assuming literal int64_t for now
+
+    // ASS types and sizes
+
+    Column column(left.type(), left.index());
+
+    switch (column.type()) {
+    case Type::Int16:
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int16_t>(
+                static_cast<int16_t>(left.get_value<int16_t>(i) - right.get_value<int64_t>(i)));
+        }
+        break;
+    case Type::Int32:
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int32_t>(
+                static_cast<int32_t>(left.get_value<int32_t>(i) - right.get_value<int64_t>(i)));
+        }
+        break;
+    case Type::Int64:
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int64_t>(
+                static_cast<int64_t>(left.get_value<int64_t>(i) - right.get_value<int64_t>(i)));
+        }
+        break;
+    case Type::Date:
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int32_t>(
+                static_cast<int32_t>(left.get_value<int32_t>(i) - right.get_value<int64_t>(i)));
+        }
+        break;
+    case Type::Timestamp:
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int64_t>(
+                static_cast<int64_t>(left.get_value<int64_t>(i) - right.get_value<int64_t>(i)));
+        }
+        break;
+    default:
+        // wrong type
+        break;
+    }
+
+    return column;
+}
+
+Compare::Compare(std::unique_ptr<IValueExpression>&& left,
+                 std::unique_ptr<IValueExpression>&& right, Cmp cmp)
+    : left_(std::move(left)), right_(std::move(right)), cmp_(cmp) {
+}
+
+void Compare::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
     Column left(left_->evaluate(batch));
     Column right(right_->evaluate(batch));
 
@@ -53,7 +156,7 @@ void NotEqual::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
         dispatch_int_comparator<int64_t>(left, right, mask);
         break;
     case Type::String:
-        dispatch_string_comparator(left, right, mask);
+        dispatch_string_comparator(left, right, mask, cmp_);
         break;
     case Type::Date:
         dispatch_int_comparator<int32_t>(left, right, mask);
@@ -64,13 +167,69 @@ void NotEqual::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
     }
 }
 
-void NotEqual::dispatch_string_comparator(const Column& left, const Column& right,
-                                          std::vector<uint8_t>& mask) {
-    for (size_t i = 0; i < left.size(); ++i) {
-        if (left.get_string(i) == right.get_string(i)) {
-            mask[i] = 0;
+void Compare::dispatch_string_comparator(const Column& left, const Column& right,
+                                         std::vector<uint8_t>& mask, Cmp cmp) {
+    switch (cmp) {
+    case Cmp::NE:
+        for (size_t i = 0; i < left.size(); ++i) {
+            if (left.get_string(i) == right.get_string(i)) {
+                mask[i] = 0;
+            }
         }
+        break;
+    case Cmp::E:
+        for (size_t i = 0; i < left.size(); ++i) {
+            if (left.get_string(i) != right.get_string(i)) {
+                mask[i] = 0;
+            }
+        }
+        break;
+    case Cmp::GE:
+        for (size_t i = 0; i < left.size(); ++i) {
+            if (left.get_string(i) < right.get_string(i)) {
+                mask[i] = 0;
+            }
+        }
+        break;
+    case Cmp::LE:
+        for (size_t i = 0; i < left.size(); ++i) {
+            if (left.get_string(i) > right.get_string(i)) {
+                mask[i] = 0;
+            }
+        }
+        break;
+    case Cmp::G:
+        for (size_t i = 0; i < left.size(); ++i) {
+            if (left.get_string(i) <= right.get_string(i)) {
+                mask[i] = 0;
+            }
+        }
+        break;
+    case Cmp::L:
+        for (size_t i = 0; i < left.size(); ++i) {
+            if (left.get_string(i) >= right.get_string(i)) {
+                mask[i] = 0;
+            }
+        }
+        break;
     }
+}
+
+And::And(std::unique_ptr<IFilterExpression>&& left, std::unique_ptr<IFilterExpression>&& right)
+    : left_(std::move(left)), right_(std::move(right)) {
+}
+
+void And::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
+    left_->evaluate(batch, mask);
+    right_->evaluate(batch, mask);
+}
+
+Like::Like(std::unique_ptr<IValueExpression>&& column, const std::string& pattern)
+    : column_(std::move(column)), pattern_(pattern) {
+}
+
+void Like::evaluate(const Batch& batch, [[maybe_unused]] std::vector<uint8_t>& mask) {
+    Column column(column_->evaluate(batch));
 }
 
 }  // namespace columnar

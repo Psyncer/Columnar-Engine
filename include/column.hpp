@@ -15,7 +15,7 @@ namespace columnar {
 class Column {
 private:
     void* data_ = nullptr;
-    int32_t* offsets_ = nullptr;
+    std::vector<int32_t> offsets_;
     size_t capacity_ = kColumnCapacity;
     size_t head_ = 0;
     Type type_;
@@ -108,12 +108,12 @@ public:
             reallocate_string();
         }
         for (size_t i = 0; i < capacity_; ++i) {
-            offsets_[i] = pos;
+            offsets_.push_back(pos);
             std::memcpy(p + pos, str.data(), str.size());
             pos += static_cast<int32_t>(str.size());
             head_++;
         }
-        offsets_[capacity_] = pos;
+        offsets_.push_back(pos);
     }
 
     Column(const Column& other)
@@ -136,21 +136,19 @@ public:
         }
         case Type::String: {
             allocate_string();
-            size_t bytes = static_cast<size_t>(other.offsets_[other.head_]);
+            size_t bytes = static_cast<size_t>(other.offsets_.back());
             std::memcpy(data_, other.data_, bytes);
-            std::memcpy(offsets_, other.offsets_, (head_ + 1) * sizeof(int32_t));
+            offsets_ = other.offsets_;
             break;
         }
         case Type::Date: {
             allocate<int32_t>();
             std::memcpy(data_, other.data_, head_ * sizeof(int32_t));
-            offsets_ = nullptr;
             break;
         }
         case Type::Timestamp: {
             allocate<int64_t>();
             std::memcpy(data_, other.data_, head_ * sizeof(int64_t));
-            offsets_ = nullptr;
             break;
         }
         }
@@ -165,14 +163,13 @@ public:
         idx_ = other.idx_;
 
         other.data_ = nullptr;
-        other.offsets_ = nullptr;
+        other.offsets_.clear();
         other.capacity_ = 0;
         other.head_ = 0;
     }
 
     ~Column() {
         std::free(data_);
-        std::free(offsets_);
     }
 
     Column& operator=(const Column& other) = delete;
@@ -183,7 +180,6 @@ public:
         }
 
         std::free(data_);
-        std::free(offsets_);
 
         data_ = other.data_;
         offsets_ = other.offsets_;
@@ -193,7 +189,7 @@ public:
         idx_ = other.idx_;
 
         other.data_ = nullptr;
-        other.offsets_ = nullptr;
+        other.offsets_.clear();
         other.capacity_ = 0;
         other.head_ = 0;
 
@@ -207,14 +203,6 @@ public:
     template <typename T>
     const T* data_as() const {
         return static_cast<const T*>(data_);
-    }
-
-    size_t string_offset(size_t idx) const {
-        return static_cast<size_t>(offsets_[idx]);
-    }
-
-    size_t string_len(size_t idx) const {
-        return static_cast<size_t>(offsets_[idx] - offsets_[idx - 1]);
     }
 
     template <typename T>
@@ -253,13 +241,13 @@ public:
     }
 
     void push_string(const std::string& str) {
-        if (static_cast<size_t>(offsets_[head_]) + str.size() >= kStringCapacity * capacity_) {
+        while (static_cast<size_t>(offsets_.back()) + str.size() >= kStringCapacity * capacity_) {
             reallocate_string();
         }
 
-        std::memcpy(static_cast<char*>(data_) + offsets_[head_], str.data(), str.size());
+        std::memcpy(static_cast<char*>(data_) + offsets_.back(), str.data(), str.size());
         head_++;
-        offsets_[head_] = offsets_[head_ - 1] + static_cast<int32_t>(str.size());
+        offsets_.push_back(offsets_.back() + static_cast<int32_t>(str.size()));
     }
 
     template <typename T>
@@ -273,7 +261,7 @@ public:
     }
 
     void emplace_string_column(void* col, size_t size) {
-        while (static_cast<size_t>(offsets_[head_]) + size > kStringCapacity * capacity_) {
+        while (static_cast<size_t>(offsets_.back()) + size > kStringCapacity * capacity_) {
             reallocate_string();
         }
 
@@ -286,16 +274,15 @@ public:
             std::memcpy(&len, current, sizeof(int32_t));
             current += sizeof(int32_t);
 
-            while (static_cast<size_t>(offsets_[head_]) + static_cast<size_t>(len) >=
+            while (static_cast<size_t>(offsets_.back()) + static_cast<size_t>(len) >=
                    kStringCapacity * capacity_) {
                 reallocate_string();
             }
 
-            std::memcpy(static_cast<char*>(data_) + offsets_[head_], current,
+            std::memcpy(static_cast<char*>(data_) + offsets_.back(), current,
                         static_cast<size_t>(len));
             head_++;
-            offsets_[head_] = offsets_[head_ - 1] + len;
-
+            offsets_.push_back(offsets_.back() + len);
             current += len;
         }
     }
@@ -306,6 +293,8 @@ public:
     }
 
     std::string get_string(size_t idx) const {
+        ASS(idx < head_, "index out of range");
+
         std::string str;
         size_t size = static_cast<size_t>(offsets_[idx + 1] - offsets_[idx]);
         str.resize(size);
@@ -328,6 +317,11 @@ public:
 
     void clear() {
         head_ = 0;
+
+        if (type_ == Type::String) {
+            offsets_.clear();
+            offsets_.push_back(0);
+        }
     }
 
 private:
@@ -338,9 +332,8 @@ private:
 
     void allocate_string() {
         data_ = std::aligned_alloc(64, kStringCapacity * capacity_ * sizeof(char));
-        offsets_ =
-            static_cast<int32_t*>(std::aligned_alloc(64, (capacity_ + 64) * sizeof(int32_t)));
-        offsets_[0] = 0;
+        offsets_.reserve(kColumnCapacity);
+        offsets_.push_back(0);
     }
 
     template <typename T>
@@ -355,7 +348,7 @@ private:
     void reallocate_string() {
         capacity_ *= 2;
         void* new_data = std::aligned_alloc(64, kStringCapacity * capacity_ * sizeof(char));
-        std::memcpy(new_data, data_, static_cast<size_t>(offsets_[head_]));
+        std::memcpy(new_data, data_, static_cast<size_t>(offsets_.back()));
         std::free(data_);
         data_ = new_data;
     }

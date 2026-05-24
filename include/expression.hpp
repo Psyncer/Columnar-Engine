@@ -38,19 +38,52 @@ public:
     Column evaluate(const Batch& batch) override;
 };
 
+class Add : public IValueExpression {
+private:
+    std::unique_ptr<IValueExpression> left_;
+    std::unique_ptr<IValueExpression> right_;
+
+public:
+    Add(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right);
+
+    Column evaluate(const Batch& batch) override;
+};
+
+class Sub : public IValueExpression {
+private:
+    std::unique_ptr<IValueExpression> left_;
+    std::unique_ptr<IValueExpression> right_;
+
+public:
+    Sub(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right);
+
+    Column evaluate(const Batch& batch) override;
+};
+
 class IFilterExpression {
 public:
     virtual void evaluate(const Batch& batch, std::vector<uint8_t>& mask) = 0;
     virtual ~IFilterExpression() = default;
 };
 
-class NotEqual : public IFilterExpression {
+class Compare : public IFilterExpression {
+public:
+    enum class Cmp {
+        NE,
+        E,
+        GE,
+        LE,
+        G,
+        L,
+    };
+
 private:
     std::unique_ptr<IValueExpression> left_;
     std::unique_ptr<IValueExpression> right_;
+    Cmp cmp_;
 
 public:
-    NotEqual(std::unique_ptr<ColumnRef>&& left, std::unique_ptr<Literal>&& right);
+    Compare(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right, Cmp cmp);
 
     void evaluate(const Batch& batch, std::vector<uint8_t>& mask) override;
 
@@ -59,19 +92,19 @@ public:
                                  std::vector<uint8_t>& mask) const {
         switch (right.type()) {
         case Type::Int16:
-            compare<T, int16_t>(left, right, mask);
+            compare<T, int16_t>(left, right, mask, cmp_);
             break;
         case Type::Int32:
-            compare<T, int32_t>(left, right, mask);
+            compare<T, int32_t>(left, right, mask, cmp_);
             break;
         case Type::Int64:
-            compare<T, int64_t>(left, right, mask);
+            compare<T, int64_t>(left, right, mask, cmp_);
             break;
         case Type::Date:
-            compare<T, int32_t>(left, right, mask);
+            compare<T, int32_t>(left, right, mask, cmp_);
             break;
         case Type::Timestamp:
-            compare<T, int64_t>(left, right, mask);
+            compare<T, int64_t>(left, right, mask, cmp_);
             break;
         default:
             // wrong type
@@ -80,16 +113,78 @@ public:
     }
 
     template <typename T, typename F>
-    void compare(const Column& left, const Column& right, std::vector<uint8_t>& mask) const {
-        for (size_t i = 0; i < left.size(); ++i) {
-            if (left.data_as<T>()[i] == right.data_as<F>()[i]) {
-                mask[i] = 0;
+    void compare(const Column& left, const Column& right, std::vector<uint8_t>& mask,
+                 Cmp cmp) const {
+        switch (cmp) {
+        case Cmp::NE:
+            for (size_t i = 0; i < left.size(); ++i) {
+                if (left.data_as<T>()[i] == right.data_as<F>()[i]) {
+                    mask[i] = 0;
+                }
             }
+            break;
+        case Cmp::E:
+            for (size_t i = 0; i < left.size(); ++i) {
+                if (left.data_as<T>()[i] != right.data_as<F>()[i]) {
+                    mask[i] = 0;
+                }
+            }
+            break;
+        case Cmp::GE:
+            for (size_t i = 0; i < left.size(); ++i) {
+                if (left.data_as<T>()[i] < right.data_as<F>()[i]) {
+                    mask[i] = 0;
+                }
+            }
+            break;
+        case Cmp::LE:
+            for (size_t i = 0; i < left.size(); ++i) {
+                if (left.data_as<T>()[i] > right.data_as<F>()[i]) {
+                    mask[i] = 0;
+                }
+            }
+            break;
+        case Cmp::G:
+            for (size_t i = 0; i < left.size(); ++i) {
+                if (left.data_as<T>()[i] <= right.data_as<F>()[i]) {
+                    mask[i] = 0;
+                }
+            }
+            break;
+        case Cmp::L:
+            for (size_t i = 0; i < left.size(); ++i) {
+                if (left.data_as<T>()[i] >= right.data_as<F>()[i]) {
+                    mask[i] = 0;
+                }
+            }
+            break;
         }
     }
 
     static void dispatch_string_comparator(const Column& left, const Column& right,
-                                           std::vector<uint8_t>& mask);
+                                           std::vector<uint8_t>& mask, Cmp cmp);
+};
+
+class And : public IFilterExpression {
+private:
+    std::unique_ptr<IFilterExpression> left_;
+    std::unique_ptr<IFilterExpression> right_;
+
+public:
+    And(std::unique_ptr<IFilterExpression>&& left, std::unique_ptr<IFilterExpression>&& right);
+
+    void evaluate(const Batch& batch, std::vector<uint8_t>& mask) override;
+};
+
+class Like : public IFilterExpression {
+private:
+    std::unique_ptr<IValueExpression> column_;
+    std::string pattern_;
+
+public:
+    Like(std::unique_ptr<IValueExpression>&& column, const std::string& pattern);
+
+    void evaluate(const Batch& batch, std::vector<uint8_t>& mask) override;
 };
 
 }  // namespace columnar
