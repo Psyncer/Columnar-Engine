@@ -143,10 +143,11 @@ public:
 class LimitOperator : public IOperator {
 private:
     std::unique_ptr<IOperator> child_;
-    int64_t cap_;
+    size_t len_;
+    size_t offset_;
 
 public:
-    LimitOperator(std::unique_ptr<IOperator> child, int64_t cap);
+    LimitOperator(std::unique_ptr<IOperator> child, size_t len, size_t offset = 0);
 
     Batch* next() override;
 

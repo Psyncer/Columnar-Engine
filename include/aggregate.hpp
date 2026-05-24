@@ -24,7 +24,13 @@ enum class AggType {
 struct AggSpec {
     AggType agg_type;
     std::string name;
+    std::string output_name;
     std::unique_ptr<IValueExpression> expr;
+
+    AggSpec(AggType t, const std::string& n, std::unique_ptr<IValueExpression> e,
+            const std::string& o_n = "")
+        : agg_type(t), name(n), output_name(o_n.empty() ? n : o_n), expr(std::move(e)) {
+    }
 };
 
 struct AggState {
@@ -69,7 +75,7 @@ struct AggState {
             column.push(max);
             break;
         case AggType::Avg:
-            column.push(static_cast<int64_t>(sum / count));
+            column.push(static_cast<int64_t>(avg.first / avg.second));
             break;
         }
     }
@@ -136,6 +142,18 @@ public:
         const T* data = column.data_as<T>();
         for (const auto& row : active_rows) {
             state.sum += data[row];
+        }
+    }
+};
+
+template <typename T>
+class AggAvg {
+public:
+    void operator()(const Column& column, AggState& state, const std::vector<size_t>& active_rows) {
+        const T* data = column.data_as<T>();
+        for (const auto& row : active_rows) {
+            state.avg.first += data[row];
+            state.avg.second++;
         }
     }
 };

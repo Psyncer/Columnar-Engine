@@ -37,8 +37,8 @@ GlobalAggOperator::GlobalAggOperator(std::unique_ptr<IOperator>&& child, std::ve
     : child_(std::move(child)), specs_(std::move(specs)), states_(specs_.size()) {
     std::vector<std::string> needed_columns;
     for (const auto& spec : specs_) {
-        result_schema_.add_column(spec.name, Type::Int64);
-        needed_columns.push_back(spec.name);
+        result_schema_.add_column(spec.output_name, Type::Int64);
+        needed_columns.push_back(spec.output_name);
     }
     result_batch_ = Batch(result_schema_, needed_columns);
 }
@@ -76,8 +76,7 @@ Batch* GlobalAggOperator::next() {
                 break;
             }
             case AggType::Avg: {
-                AggCount{}(batch->row_count_, state);
-                dispatch_agg<AggSum>(*batch, state, spec.expr);
+                dispatch_agg<AggAvg>(*batch, state, spec.expr);
                 break;
             }
             }
@@ -89,14 +88,14 @@ Batch* GlobalAggOperator::next() {
     const Schema& schema = child_->get_schema();
     for (const auto& spec : specs_) {
         if (schema.get_column_type(spec.name) == Type::String) {
-            result_schema.add_column(spec.name, Type::String);
+            result_schema.add_column(spec.output_name, Type::String);
         } else if (spec.agg_type == AggType::Min || spec.agg_type == AggType::Max ||
                    spec.agg_type == AggType::Avg) {
-            result_schema.add_column(spec.name, schema.get_column_type(spec.name));
+            result_schema.add_column(spec.output_name, schema.get_column_type(spec.name));
         } else {
-            result_schema.add_column(spec.name, Type::Int64);
+            result_schema.add_column(spec.output_name, Type::Int64);
         }
-        needed_columns.push_back(spec.name);
+        needed_columns.push_back(spec.output_name);
     }
 
     result_batch_ = Batch(result_schema, needed_columns);
@@ -350,22 +349,22 @@ Batch* GroupByOperator::next() {
                 }
                 case AggType::Avg: {
                     Column column = spec.expr->evaluate(*batch);
-                    state.avg.first++;
+                    state.avg.second++;
                     switch (column.type()) {
                     case Type::Int16:
-                        state.avg.second += static_cast<int64_t>(column.get_value<int16_t>(row));
+                        state.avg.first += static_cast<int64_t>(column.get_value<int16_t>(row));
                         break;
                     case Type::Int32:
-                        state.avg.second += static_cast<int64_t>(column.get_value<int32_t>(row));
+                        state.avg.first += static_cast<int64_t>(column.get_value<int32_t>(row));
                         break;
                     case Type::Int64:
-                        state.avg.second += static_cast<int64_t>(column.get_value<int64_t>(row));
+                        state.avg.first += static_cast<int64_t>(column.get_value<int64_t>(row));
                         break;
                     case Type::Date:
-                        state.avg.second += static_cast<int64_t>(column.get_value<int32_t>(row));
+                        state.avg.first += static_cast<int64_t>(column.get_value<int32_t>(row));
                         break;
                     case Type::Timestamp:
-                        state.avg.second += static_cast<int64_t>(column.get_value<int64_t>(row));
+                        state.avg.first += static_cast<int64_t>(column.get_value<int64_t>(row));
                         break;
                     default:
                         // wrong type
@@ -389,13 +388,13 @@ Batch* GroupByOperator::next() {
 
     for (const auto& spec : specs_) {
         if (schema.get_column_type(spec.name) == Type::String) {
-            result_schema_.add_column(spec.name, Type::String);
+            result_schema_.add_column(spec.output_name, Type::String);
         } else if (spec.agg_type == AggType::Min || spec.agg_type == AggType::Max) {
-            result_schema_.add_column(spec.name, schema.get_column_type(spec.name));
+            result_schema_.add_column(spec.output_name, schema.get_column_type(spec.name));
         } else {
-            result_schema_.add_column(spec.name, Type::Int64);
+            result_schema_.add_column(spec.output_name, Type::Int64);
         }
-        needed_columns.push_back(spec.name);
+        needed_columns.push_back(spec.output_name);
     }
 
     result_batch_ = Batch(result_schema_, needed_columns);
@@ -550,6 +549,47 @@ Batch* OrderByOperator::next() {
 }
 
 const Schema& OrderByOperator::get_schema() const {
+    return child_->get_schema();
+}
+
+LimitOperator::LimitOperator(std::unique_ptr<IOperator> child, size_t len, size_t offset)
+    : child_(std::move(child)), len_(len), offset_(offset) {
+}
+
+Batch* LimitOperator::next() {
+    while (len_ > 0) {
+        Batch* batch = child_->next();
+
+        if (batch == nullptr) {
+            return nullptr;
+        }
+
+        std::vector<size_t> new_active_rows;
+
+        for (size_t row : batch->active_rows_) {
+            if (offset_ > 0) {
+                offset_--;
+                continue;
+            }
+
+            if (len_ == 0) {
+                break;
+            }
+
+            new_active_rows.push_back(row);
+            len_--;
+        }
+
+        if (!new_active_rows.empty()) {
+            batch->active_rows_ = std::move(new_active_rows);
+            return batch;
+        }
+    }
+
+    return nullptr;
+}
+
+const Schema& LimitOperator::get_schema() const {
     return child_->get_schema();
 }
 
