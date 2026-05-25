@@ -163,28 +163,43 @@ Batch* GroupByOperator::next() {
     done_ = true;
 
     while (Batch* batch = child_->next()) {
+        std::vector<const Column*> columns;
+        columns.reserve(group_exprs_.size());
+
+        for (const auto& expr : group_exprs_) {
+            columns.emplace_back(expr->evaluate(*batch));
+        }
+
+        std::vector<const Column*> agg_cols;
+        for (const auto& spec : specs_) {
+            if (spec.agg_type != AggType::Count) {
+                agg_cols.emplace_back(spec.expr->evaluate(*batch));
+            } else {
+                agg_cols.emplace_back(nullptr);
+            }
+        }
+
         for (const auto& row : batch->active_rows_) {
             GroupKey key;
-            for (const auto& expr : group_exprs_) {
-                Column column = expr->evaluate(*batch);
-                switch (column.type()) {
+            for (const auto& column : columns) {
+                switch (column->type()) {
                 case Type::Int16:
-                    key.ints.push_back(static_cast<int64_t>(column.get_value<int16_t>(row)));
+                    key.ints.push_back(static_cast<int64_t>(column->get_value<int16_t>(row)));
                     break;
                 case Type::Int32:
-                    key.ints.push_back(static_cast<int64_t>(column.get_value<int32_t>(row)));
+                    key.ints.push_back(static_cast<int64_t>(column->get_value<int32_t>(row)));
                     break;
                 case Type::Int64:
-                    key.ints.push_back(static_cast<int64_t>(column.get_value<int64_t>(row)));
+                    key.ints.push_back(static_cast<int64_t>(column->get_value<int64_t>(row)));
                     break;
                 case Type::String:
-                    key.strs.push_back(column.get_string(row));
+                    key.strs.push_back(column->get_string(row));
                     break;
                 case Type::Date:
-                    key.ints.push_back(static_cast<int64_t>(column.get_value<int32_t>(row)));
+                    key.ints.push_back(static_cast<int64_t>(column->get_value<int32_t>(row)));
                     break;
                 case Type::Timestamp:
-                    key.ints.push_back(static_cast<int64_t>(column.get_value<int64_t>(row)));
+                    key.ints.push_back(static_cast<int64_t>(column->get_value<int64_t>(row)));
                     break;
                 }
             }
@@ -196,182 +211,109 @@ Batch* GroupByOperator::next() {
             }
 
             for (size_t i = 0; i < specs_.size(); ++i) {
-                AggState& state = states[i];
-                AggSpec& spec = specs_[i];
-                switch (specs_[i].agg_type) {
-                case AggType::Count: {
-                    state.count++;
-                    break;
-                }
-                case AggType::CountDistinct: {
-                    Column column = spec.expr->evaluate(*batch);
-                    switch (column.type()) {
-                    case Type::Int16:
-                        state.distinct.insert(static_cast<int64_t>(column.get_value<int16_t>(row)));
+                if (agg_cols[i] == nullptr) {
+                    states[i].count++;
+                } else {
+                    const Column* col = agg_cols[i];
+                    AggState& state = states[i];
+                    switch (specs_[i].agg_type) {
+                    case AggType::Sum:
+                        switch (col->type()) {
+                        case Type::Int16:
+                            state.sum += col->get_value<int16_t>(row);
+                            break;
+                        case Type::Int32:
+                            state.sum += col->get_value<int32_t>(row);
+                            break;
+                        case Type::Int64:
+                            state.sum += col->get_value<int64_t>(row);
+                            break;
+                        default:
+                            break;
+                        }
                         break;
-                    case Type::Int32:
-                        state.distinct.insert(static_cast<int64_t>(column.get_value<int32_t>(row)));
-                        break;
-                    case Type::Int64:
-                        state.distinct.insert(static_cast<int64_t>(column.get_value<int64_t>(row)));
-                        break;
-                    case Type::String:
-                        state.str_distinct.insert(column.get_string(row));
-                        break;
-                    case Type::Date:
-                        state.distinct.insert(static_cast<int64_t>(column.get_value<int32_t>(row)));
-                        break;
-                    case Type::Timestamp:
-                        state.distinct.insert(static_cast<int64_t>(column.get_value<int64_t>(row)));
+                    case AggType::Min: {
+                        int64_t val;
+                        switch (col->type()) {
+                        case Type::Int16:
+                            val = col->get_value<int16_t>(row);
+                            break;
+                        case Type::Int32:
+                            val = col->get_value<int32_t>(row);
+                            break;
+                        case Type::Int64:
+                            val = col->get_value<int64_t>(row);
+                            break;
+                        default:
+                            // wrong type
+                            val = 0;
+                            break;
+                        }
+                        if (val < state.min) {
+                            state.min = val;
+                        }
                         break;
                     }
-                    break;
-                }
-                case AggType::Sum: {
-                    Column column = spec.expr->evaluate(*batch);
-                    switch (column.type()) {
-                    case Type::Int16:
-                        state.sum += static_cast<int64_t>(column.get_value<int16_t>(row));
+                    case AggType::Max: {
+                        int64_t val;
+                        switch (col->type()) {
+                        case Type::Int16:
+                            val = col->get_value<int16_t>(row);
+                            break;
+                        case Type::Int32:
+                            val = col->get_value<int32_t>(row);
+                            break;
+                        case Type::Int64:
+                            val = col->get_value<int64_t>(row);
+                            break;
+                        default:
+                            // wrong type
+                            val = 0;
+                            break;
+                        }
+                        if (val > state.max) {
+                            state.max = val;
+                        }
                         break;
-                    case Type::Int32:
-                        state.sum += static_cast<int64_t>(column.get_value<int32_t>(row));
+                    }
+                    case AggType::CountDistinct: {
+                        switch (col->type()) {
+                        case Type::Int16:
+                            state.distinct.insert(col->get_value<int16_t>(row));
+                            break;
+                        case Type::Int32:
+                            state.distinct.insert(col->get_value<int32_t>(row));
+                            break;
+                        case Type::Int64:
+                            state.distinct.insert(col->get_value<int64_t>(row));
+                            break;
+                        case Type::String:
+                            state.str_distinct.insert(col->get_string(row));
+                            break;
+                        default:
+                            break;
+                        }
                         break;
-                    case Type::Int64:
-                        state.sum += static_cast<int64_t>(column.get_value<int64_t>(row));
-                        break;
-                    case Type::Date:
-                        state.sum += static_cast<int64_t>(column.get_value<int32_t>(row));
-                        break;
-                    case Type::Timestamp:
-                        state.sum += static_cast<int64_t>(column.get_value<int64_t>(row));
+                    }
+                    case AggType::Avg:
+                        state.avg.second++;
+                        switch (col->type()) {
+                        case Type::Int16:
+                            state.avg.first += col->get_value<int16_t>(row);
+                            break;
+                        case Type::Int32:
+                            state.avg.first += col->get_value<int32_t>(row);
+                            break;
+                        case Type::Int64:
+                            state.avg.first += col->get_value<int64_t>(row);
+                            break;
+                        default:
+                            break;
+                        }
                         break;
                     default:
-                        // wrong type
                         break;
                     }
-                    break;
-                }
-                case AggType::Min: {
-                    Column column = spec.expr->evaluate(*batch);
-                    switch (column.type()) {
-                    case Type::Int16: {
-                        int64_t val = static_cast<int64_t>(column.get_value<int16_t>(row));
-                        if (val < state.min) {
-                            state.min = val;
-                        }
-                        break;
-                    }
-                    case Type::Int32: {
-                        int64_t val = static_cast<int64_t>(column.get_value<int32_t>(row));
-                        if (val < state.min) {
-                            state.min = val;
-                        }
-                        break;
-                    }
-                    case Type::Int64: {
-                        int64_t val = static_cast<int64_t>(column.get_value<int64_t>(row));
-                        if (val < state.min) {
-                            state.min = val;
-                        }
-                        break;
-                    }
-                    case Type::String: {
-                        std::string str = column.get_string(row);
-                        if (str < state.str_min) {
-                            state.str_min = str;
-                        }
-                        break;
-                    }
-                    case Type::Date: {
-                        int64_t val = static_cast<int64_t>(column.get_value<int32_t>(row));
-                        if (val < state.min) {
-                            state.min = val;
-                        }
-                        break;
-                    }
-                    case Type::Timestamp: {
-                        int64_t val = static_cast<int64_t>(column.get_value<int64_t>(row));
-                        if (val < state.min) {
-                            state.min = val;
-                        }
-                        break;
-                    }
-                    }
-                    break;
-                }
-                case AggType::Max: {
-                    Column column = spec.expr->evaluate(*batch);
-                    switch (column.type()) {
-                    case Type::Int16: {
-                        int64_t val = static_cast<int64_t>(column.get_value<int16_t>(row));
-                        if (val > state.max) {
-                            state.max = val;
-                        }
-                        break;
-                    }
-                    case Type::Int32: {
-                        int64_t val = static_cast<int64_t>(column.get_value<int32_t>(row));
-                        if (val > state.max) {
-                            state.max = val;
-                        }
-                        break;
-                    }
-                    case Type::Int64: {
-                        int64_t val = static_cast<int64_t>(column.get_value<int64_t>(row));
-                        if (val > state.max) {
-                            state.max = val;
-                        }
-                        break;
-                    }
-                    case Type::String: {
-                        std::string str = column.get_string(row);
-                        if (str > state.str_max) {
-                            state.str_max = str;
-                        }
-                        break;
-                    }
-                    case Type::Date: {
-                        int64_t val = static_cast<int64_t>(column.get_value<int32_t>(row));
-                        if (val > state.max) {
-                            state.max = val;
-                        }
-                        break;
-                    }
-                    case Type::Timestamp: {
-                        int64_t val = static_cast<int64_t>(column.get_value<int64_t>(row));
-                        if (val > state.max) {
-                            state.max = val;
-                        }
-                        break;
-                    }
-                    }
-                    break;
-                }
-                case AggType::Avg: {
-                    Column column = spec.expr->evaluate(*batch);
-                    state.avg.second++;
-                    switch (column.type()) {
-                    case Type::Int16:
-                        state.avg.first += static_cast<int64_t>(column.get_value<int16_t>(row));
-                        break;
-                    case Type::Int32:
-                        state.avg.first += static_cast<int64_t>(column.get_value<int32_t>(row));
-                        break;
-                    case Type::Int64:
-                        state.avg.first += static_cast<int64_t>(column.get_value<int64_t>(row));
-                        break;
-                    case Type::Date:
-                        state.avg.first += static_cast<int64_t>(column.get_value<int32_t>(row));
-                        break;
-                    case Type::Timestamp:
-                        state.avg.first += static_cast<int64_t>(column.get_value<int64_t>(row));
-                        break;
-                    default:
-                        // wrong type
-                        break;
-                    }
-                    break;
-                }
                 }
             }
         }
@@ -480,7 +422,7 @@ Batch* OrderByOperator::next() {
 
     std::vector<size_t>& indices = accumulated_batch_.active_rows_;
 
-    std::vector<Column> order_columns;
+    std::vector<const Column*> order_columns;
     order_columns.reserve(order_specs_.size());
 
     for (const auto& spec : order_specs_) {
@@ -490,51 +432,51 @@ Batch* OrderByOperator::next() {
     std::sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
         for (size_t i = 0; i < order_specs_.size(); ++i) {
             const auto& spec = order_specs_[i];
-            const Column& column = order_columns[i];
-            switch (column.type()) {
+            const Column* column = order_columns[i];
+            switch (column->type()) {
             case Type::Int16: {
-                int16_t va = column.get_value<int16_t>(a);
-                int16_t vb = column.get_value<int16_t>(b);
+                int16_t va = column->get_value<int16_t>(a);
+                int16_t vb = column->get_value<int16_t>(b);
                 if (va != vb) {
                     return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
                 }
                 break;
             }
             case Type::Int32: {
-                int32_t va = column.get_value<int32_t>(a);
-                int32_t vb = column.get_value<int32_t>(b);
+                int32_t va = column->get_value<int32_t>(a);
+                int32_t vb = column->get_value<int32_t>(b);
                 if (va != vb) {
                     return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
                 }
                 break;
             }
             case Type::Int64: {
-                int64_t va = column.get_value<int64_t>(a);
-                int64_t vb = column.get_value<int64_t>(b);
+                int64_t va = column->get_value<int64_t>(a);
+                int64_t vb = column->get_value<int64_t>(b);
                 if (va != vb) {
                     return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
                 }
                 break;
             }
             case Type::String: {
-                std::string stra = column.get_string(a);
-                std::string strb = column.get_string(b);
+                std::string stra = column->get_string(a);
+                std::string strb = column->get_string(b);
                 if (stra != strb) {
                     return spec.dir == OrderDirection::Asc ? stra < strb : stra > strb;
                 }
                 break;
             }
             case Type::Date: {
-                int32_t va = column.get_value<int32_t>(a);
-                int32_t vb = column.get_value<int32_t>(b);
+                int32_t va = column->get_value<int32_t>(a);
+                int32_t vb = column->get_value<int32_t>(b);
                 if (va != vb) {
                     return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
                 }
                 break;
             }
             case Type::Timestamp: {
-                int64_t va = column.get_value<int64_t>(a);
-                int64_t vb = column.get_value<int64_t>(b);
+                int64_t va = column->get_value<int64_t>(a);
+                int64_t vb = column->get_value<int64_t>(b);
                 if (va != vb) {
                     return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
                 }

@@ -10,18 +10,19 @@ namespace columnar {
 
 class IValueExpression {
 public:
-    virtual Column evaluate(const Batch& batch) = 0;
+    virtual const Column* evaluate(const Batch& batch) = 0;
     virtual ~IValueExpression() = default;
 };
 
 class ColumnRef : public IValueExpression {
 private:
     std::string name_;
+    const Column* column_;
 
 public:
     ColumnRef(std::string name);
 
-    Column evaluate(const Batch& batch) override;
+    const Column* evaluate(const Batch& batch) override;
 
     std::string name() const;
 };
@@ -29,35 +30,38 @@ public:
 class Literal : public IValueExpression {
 private:
     std::variant<int64_t, std::string> literal_;
+    Column column_;
 
 public:
     template <typename T>
-    Literal(T literal) : literal_(literal) {
+    Literal(T literal) : literal_(literal), column_(Type::Int16, 0) {
     }
 
-    Column evaluate(const Batch& batch) override;
+    const Column* evaluate(const Batch& batch) override;
 };
 
 class Add : public IValueExpression {
 private:
     std::unique_ptr<IValueExpression> left_;
     std::unique_ptr<IValueExpression> right_;
+    Column column_;
 
 public:
     Add(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right);
 
-    Column evaluate(const Batch& batch) override;
+    const Column* evaluate(const Batch& batch) override;
 };
 
 class Sub : public IValueExpression {
 private:
     std::unique_ptr<IValueExpression> left_;
     std::unique_ptr<IValueExpression> right_;
+    Column column_;
 
 public:
     Sub(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right);
 
-    Column evaluate(const Batch& batch) override;
+    const Column* evaluate(const Batch& batch) override;
 };
 
 class IFilterExpression {
@@ -83,7 +87,8 @@ private:
     Cmp cmp_;
 
 public:
-    Compare(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right, Cmp cmp);
+    Compare(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right,
+            Cmp cmp);
 
     void evaluate(const Batch& batch, std::vector<uint8_t>& mask) override;
 

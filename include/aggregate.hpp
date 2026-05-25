@@ -84,25 +84,25 @@ struct AggState {
 template <template <typename> class AggFn>
 void dispatch_agg(const Batch& batch, AggState& state,
                   const std::unique_ptr<IValueExpression>& expr) {
-    Column column(expr->evaluate(batch));
-    switch (column.type()) {
+    const Column* column = expr->evaluate(batch);
+    switch (column->type()) {
     case Type::Int16:
-        AggFn<int16_t>{}(column, state, batch.active_rows_);
+        AggFn<int16_t>{}(*column, state, batch.active_rows_);
         break;
     case Type::Int32:
-        AggFn<int32_t>{}(column, state, batch.active_rows_);
+        AggFn<int32_t>{}(*column, state, batch.active_rows_);
         break;
     case Type::Int64:
-        AggFn<int64_t>{}(column, state, batch.active_rows_);
+        AggFn<int64_t>{}(*column, state, batch.active_rows_);
         break;
     case Type::String:
-        AggFn<char>{}(column, state, batch.active_rows_);
+        AggFn<char>{}(*column, state, batch.active_rows_);
         break;
     case Type::Date:
-        AggFn<int32_t>{}(column, state, batch.active_rows_);
+        AggFn<int32_t>{}(*column, state, batch.active_rows_);
         break;
     case Type::Timestamp:
-        AggFn<int64_t>{}(column, state, batch.active_rows_);
+        AggFn<int64_t>{}(*column, state, batch.active_rows_);
         break;
     }
 }
