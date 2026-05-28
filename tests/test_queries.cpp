@@ -1,5 +1,7 @@
+#include <chrono>
 #include <iostream>
 #include <memory>
+#include <numeric>
 #include <string>
 
 #include "aggregate.hpp"
@@ -10,25 +12,163 @@
 #include "csv_writer.hpp"
 #include "expression.hpp"
 #include "operator.hpp"
+#include "parsing.hpp"
 
-using columnar::AggSpec;
-using columnar::AggType;
-using columnar::Batch;
-using columnar::ColumnarWriter;
-using columnar::ColumnRef;
-using columnar::Compare;
-using columnar::ConversionBatch;
-using columnar::CsvReader;
-using columnar::CsvWriter;
-using columnar::FilterOperator;
-using columnar::GlobalAggOperator;
-using columnar::GroupByOperator;
-using columnar::IValueExpression;
-using columnar::LimitOperator;
-using columnar::Literal;
-using columnar::OrderByOperator;
-using columnar::ScanOperator;
-using columnar::Schema;
+using namespace columnar;
+
+struct QueryBuilder {
+    std::string path_;
+
+    QueryBuilder(const std::string& path) : path_(path) {
+    }
+
+    std::unique_ptr<IOperator> scan(const std::vector<std::string>& cols) {
+        return std::make_unique<ScanOperator>(path_, cols);
+    }
+
+    static std::unique_ptr<IOperator> global_agg(std::unique_ptr<IOperator>&& child,
+                                                 std::vector<AggSpec> specs) {
+        return std::make_unique<GlobalAggOperator>(std::move(child), std::move(specs));
+    }
+
+    static std::unique_ptr<IOperator> filter(std::unique_ptr<IOperator>&& child,
+                                             std::unique_ptr<IFilterExpression>&& expr) {
+        return std::make_unique<FilterOperator>(std::move(child), std::move(expr));
+    }
+
+    static std::unique_ptr<IOperator>
+    group_by(std::unique_ptr<IOperator>&& child,
+             std::vector<std::unique_ptr<IValueExpression>>&& keys, std::vector<AggSpec> aggs) {
+        return std::make_unique<GroupByOperator>(std::move(child), std::move(keys),
+                                                 std::move(aggs));
+    }
+
+    static std::unique_ptr<IOperator> order_by(std::unique_ptr<IOperator>&& child,
+                                               std::vector<OrderByOperator::OrderSpec> specs) {
+        return std::make_unique<OrderByOperator>(std::move(child), std::move(specs));
+    }
+
+    static std::unique_ptr<IOperator> limit(std::unique_ptr<IOperator>&& child, int64_t n,
+                                            size_t offset = 0) {
+        return std::make_unique<LimitOperator>(std::move(child), n, offset);
+    }
+
+    static std::unique_ptr<IOperator> having(std::unique_ptr<IOperator>&& child,
+                                             std::unique_ptr<IFilterExpression>&& filter) {
+        return std::make_unique<HavingOperator>(std::move(child), std::move(filter));
+    }
+};
+
+auto col(const std::string& name, std::unique_ptr<IValueExpression>&& expr = nullptr) {
+    return std::make_unique<ColumnRef>(name, std::move(expr));
+}
+
+auto lit(auto val) {
+    return std::make_unique<Literal>(val);
+}
+
+auto add(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right) {
+    return std::make_unique<Add>(std::move(left), std::move(right));
+}
+
+auto sub(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right) {
+    return std::make_unique<Sub>(std::move(left), std::move(right));
+}
+
+auto extract(std::unique_ptr<IValueExpression>&& target, Extract::ExtractSpec spec) {
+    return std::make_unique<Extract>(std::move(target), spec);
+}
+
+auto str_len(std::unique_ptr<IValueExpression>&& target) {
+    return std::make_unique<StrLen>(std::move(target));
+}
+
+auto date_trunc(std::unique_ptr<IValueExpression>&& target, DateTrunc::TruncSpec spec) {
+    return std::make_unique<DateTrunc>(std::move(target), spec);
+}
+
+auto regexp_replace(std::unique_ptr<IValueExpression>&& target, const std::string& pattern,
+                    const std::string& replacement) {
+    return std::make_unique<RegexpReplace>(std::move(target), pattern, replacement);
+}
+
+auto case_when(std::unique_ptr<IFilterExpression>&& condition,
+               std::unique_ptr<IValueExpression>&& then, std::unique_ptr<IValueExpression>&& els) {
+    return std::make_unique<CaseWhen>(std::move(condition), std::move(then), std::move(els));
+}
+
+auto equal(std::unique_ptr<ColumnRef>&& l, std::unique_ptr<Literal>&& r) {
+    return std::make_unique<Compare>(std::move(l), std::move(r), Compare::Cmp::E);
+}
+
+auto not_equal(std::unique_ptr<ColumnRef>&& l, std::unique_ptr<Literal>&& r) {
+    return std::make_unique<Compare>(std::move(l), std::move(r), Compare::Cmp::NE);
+}
+
+auto greater(std::unique_ptr<ColumnRef>&& l, std::unique_ptr<Literal>&& r) {
+    return std::make_unique<Compare>(std::move(l), std::move(r), Compare::Cmp::G);
+}
+
+auto greater_equal(std::unique_ptr<ColumnRef>&& l, std::unique_ptr<Literal>&& r) {
+    return std::make_unique<Compare>(std::move(l), std::move(r), Compare::Cmp::GE);
+}
+
+auto less(std::unique_ptr<ColumnRef>&& l, std::unique_ptr<Literal>&& r) {
+    return std::make_unique<Compare>(std::move(l), std::move(r), Compare::Cmp::L);
+}
+
+auto less_equal(std::unique_ptr<ColumnRef>&& l, std::unique_ptr<Literal>&& r) {
+    return std::make_unique<Compare>(std::move(l), std::move(r), Compare::Cmp::LE);
+}
+
+auto and_expr(std::unique_ptr<IFilterExpression>&& left,
+              std::unique_ptr<IFilterExpression>&& right) {
+    return std::make_unique<And>(std::move(left), std::move(right));
+}
+
+auto in(std::unique_ptr<IValueExpression>&& column, const std::vector<int>& set) {
+    return std::make_unique<In>(std::move(column), set);
+}
+
+auto like(std::unique_ptr<ColumnRef>&& l, const std::string& str) {
+    return std::make_unique<Like>(std::move(l), str);
+}
+
+auto not_like(std::unique_ptr<ColumnRef>&& l, const std::string& str) {
+    return std::make_unique<NotLike>(std::move(l), str);
+}
+
+auto count(const std::string& col, std::string alias = "") {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::Count, col, std::make_unique<ColumnRef>(col), alias);
+}
+
+auto count_distinct(const std::string& col, std::string alias = "") {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::CountDistinct, col, std::make_unique<ColumnRef>(col), alias);
+}
+
+auto sum(const std::string& col, std::unique_ptr<IValueExpression>&& expr = nullptr,
+         std::string alias = "") {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::Sum, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
+}
+
+auto min(const std::string& col, std::string alias = "") {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::Min, col, std::make_unique<ColumnRef>(col), alias);
+}
+
+auto max(const std::string& col, std::string alias = "") {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::Max, col, std::make_unique<ColumnRef>(col), alias);
+}
+
+auto avg(const std::string& col, std::unique_ptr<IValueExpression>&& expr = nullptr,
+         std::string alias = "") {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::Avg, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
+}
 
 void convert(const std::string& csv_schema, const std::string& csv_data,
              const std::string& output_file) {
@@ -137,6 +277,1665 @@ std::vector<OrderByOperator::OrderSpec> order_specs(Ts&&... ts) {
     return v;
 }
 
+void query00() {
+    // ==============
+    // SELECT COUNT(*)
+    // FROM hits;
+    // ==============
+
+    std::cout << "Query 0:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.global_agg(q.scan({""}), make_aggs(count("*")));
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query01() {
+    // ==============
+    // SELECT COUNT(*)
+    // FROM hits
+    // WHERE AdvEngineID <> 0;
+    // ==============
+
+    std::cout << "Query 1:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan =
+        q.global_agg(q.filter(q.scan({"AdvEngineID"}), not_equal(col("AdvEngineID"), lit(0))),
+                     make_aggs(count("*")));
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query02() {
+    // ==============
+    // SELECT SUM(AdvEngineID)
+    // SELECT COUNT(*)
+    // SELECT AVG(ResolutionWidth)
+    // FROM hits;
+    // ==============
+
+    std::cout << "Query 2:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.global_agg(q.scan({"AdvEngineID", "ResolutionWidth"}),
+                             make_aggs(sum("AdvEngineID"), count("*"), avg("ResolutionWidth")));
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query03() {
+    // ==============
+    // SELECT AVG(UserID)
+    // FROM hits;
+    // ==============
+
+    std::cout << "Query 3:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.global_agg(q.scan({"UserID"}), make_aggs(avg("UserID")));
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query04() {
+    // ==============
+    // SELECT COUNT(DISTINCT UserID)
+    // FROM hits;
+    // ==============
+
+    std::cout << "Query 4:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.global_agg(q.scan({"UserID"}), make_aggs(count_distinct("UserID")));
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query05() {
+    // ==============
+    // SELECT COUNT(DISTINCT SearchPhrase)
+    // FROM hits;
+    // ==============
+
+    std::cout << "Query 5:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.global_agg(q.scan({"SearchPhrase"}), make_aggs(count_distinct("SearchPhrase")));
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query06() {
+    // ==============
+    // SELECT MIN(EventDate)
+    // SELECT MAX(EventDate)
+    // FROM hits;
+    // ==============
+
+    std::cout << "Query 6:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.global_agg(q.scan({"EventDate"}), make_aggs(min("EventDate"), max("EventDate")));
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query07() {
+    // ==============
+    // SELECT AdvEngineID
+    // SELECT COUNT(*)
+    // FROM hits
+    // WHERE AdvEngineID <> 0
+    // GROUP BY AdvEngineID
+    // ORDER BY COUNT(*) DESC;
+    // ==============
+
+    std::cout << "Query 7:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.order_by(
+        q.group_by(q.filter(q.scan({"AdvEngineID"}), not_equal(col("AdvEngineID"), lit(0))),
+                   make_groups(col("AdvEngineID")), make_aggs(count("*"))),
+        order_specs(OrderByOperator::OrderSpec{col("*"), OrderByOperator::OrderDirection::Desc}));
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query08() {
+    // ==============
+    // SELECT RegionID
+    // SELECT COUNT(DISTINCT UserID)
+    // FROM hits
+    // GROUP BY RegionID
+    // ORDER BY u DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "Query 8:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan =
+        q.limit(q.order_by(q.group_by(q.scan({"RegionID", "UserID"}), make_groups(col("RegionID")),
+                                      make_aggs(count_distinct("UserID", "u"))),
+                           order_specs(OrderByOperator::OrderSpec{
+                               col("u"), OrderByOperator::OrderDirection::Desc})),
+                10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query09() {
+    // ==============
+    // SELECT RegionID
+    // SELECT SUM(AdvEngineID)
+    // SELECT COUNT(*) AS c
+    // SELECT AVG(ResolutionWidth)
+    // SELECT COUNT(DISTINCT UserID)
+    // FROM hits
+    // GROUP BY RegionID
+    // ORDER BY c DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "Query 9:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(q.group_by(q.scan({"RegionID", "AdvEngineID", "ResolutionWidth", "UserID"}),
+                              make_groups(col("RegionID")),
+                              make_aggs(sum("AdvEngineID"), count("*", "c"), avg("ResolutionWidth"),
+                                        count_distinct("UserID"))),
+                   order_specs(OrderByOperator::OrderSpec{col("c"),
+                                                          OrderByOperator::OrderDirection::Desc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query10() {
+    // ==============
+    // SELECT MobilePhoneModel, COUNT(DISTINCT UserID) AS u
+    // FROM hits
+    // WHERE MobilePhoneModel <> ''
+    // GROUP BY MobilePhoneModel
+    // ORDER BY u DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 10:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(q.order_by(q.group_by(q.filter(q.scan({"MobilePhoneModel", "UserID"}),
+                                                       not_equal(col("MobilePhoneModel"), lit(""))),
+                                              make_groups(col("MobilePhoneModel")),
+                                              make_aggs(count_distinct("UserID", "u"))),
+                                   order_specs(OrderByOperator::OrderSpec{
+                                       col("u"), OrderByOperator::OrderDirection::Desc})),
+                        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "\nTime: " << ms << " ms" << std::endl;
+}
+
+void query11() {
+    // ==============
+    // SELECT MobilePhone, MobilePhoneModel, COUNT(DISTINCT UserID) AS u
+    // FROM hits
+    // WHERE MobilePhoneModel <> ''
+    // GROUP BY MobilePhone, MobilePhoneModel
+    // ORDER BY u DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 11:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(q.group_by(q.filter(q.scan({"MobilePhone", "MobilePhoneModel", "UserID"}),
+                                       not_equal(col("MobilePhoneModel"), lit(""))),
+                              make_groups(col("MobilePhone"), col("MobilePhoneModel")),
+                              make_aggs(count_distinct("UserID", "u"))),
+                   order_specs(OrderByOperator::OrderSpec{col("u"),
+                                                          OrderByOperator::OrderDirection::Desc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "\nTime: " << ms << " ms" << std::endl;
+}
+
+void query12() {
+    // ==============
+    // SELECT SearchPhrase, COUNT(*) AS c
+    // FROM hits
+    // WHERE SearchPhrase <> ''
+    // GROUP BY SearchPhrase
+    // ORDER BY c DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 12:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(
+            q.group_by(q.filter(q.scan({"SearchPhrase"}), not_equal(col("SearchPhrase"), lit(""))),
+                       make_groups(col("SearchPhrase")), make_aggs(count("*", "c"))),
+            order_specs(
+                OrderByOperator::OrderSpec{col("c"), OrderByOperator::OrderDirection::Desc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "\nTime: " << ms << " ms" << std::endl;
+}
+
+void query13() {
+    // ==============
+    // SELECT SearchPhrase, COUNT(DISTINCT UserID) AS u
+    // FROM hits
+    // WHERE SearchPhrase <> ''
+    // GROUP BY SearchPhrase
+    // ORDER BY u DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 13:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "UserID"}),
+                                                       not_equal(col("SearchPhrase"), lit(""))),
+                                              make_groups(col("SearchPhrase")),
+                                              make_aggs(count_distinct("UserID", "u"))),
+                                   order_specs(OrderByOperator::OrderSpec{
+                                       col("u"), OrderByOperator::OrderDirection::Desc})),
+                        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "\nTime: " << ms << " ms" << std::endl;
+}
+
+void query14() {
+    // ==============
+    // SELECT SearchEngineID, SearchPhrase, COUNT(*) AS c
+    // FROM hits
+    // WHERE SearchPhrase <> ''
+    // GROUP BY SearchEngineID, SearchPhrase
+    // ORDER BY c DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 14:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan =
+        q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchEngineID", "SearchPhrase"}),
+                                               not_equal(col("SearchPhrase"), lit(""))),
+                                      make_groups(col("SearchEngineID"), col("SearchPhrase")),
+                                      make_aggs(count("*", "c"))),
+                           order_specs(OrderByOperator::OrderSpec{
+                               col("c"), OrderByOperator::OrderDirection::Desc})),
+                10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "\nTime: " << ms << " ms" << std::endl;
+}
+
+void query15() {
+    // ==============
+    // SELECT UserID, COUNT(*)
+    // FROM hits
+    // GROUP BY UserID
+    // ORDER BY COUNT(*) DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 15:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(q.order_by(q.group_by(q.scan({"UserID"}), make_groups(col("UserID")),
+                                              make_aggs(count("*", "c"))),
+                                   order_specs(OrderByOperator::OrderSpec{
+                                       col("c"), OrderByOperator::OrderDirection::Desc})),
+                        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "\nTime: " << ms << " ms" << std::endl;
+}
+
+void query16() {
+    // ==============
+    // SELECT UserID, SearchPhrase, COUNT(*)
+    // FROM hits
+    // GROUP BY UserID, SearchPhrase
+    // ORDER BY COUNT(*) DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 16:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(q.order_by(q.group_by(q.scan({"UserID", "SearchPhrase"}),
+                                              make_groups(col("UserID"), col("SearchPhrase")),
+                                              make_aggs(count("*", "c"))),
+                                   order_specs(OrderByOperator::OrderSpec{
+                                       col("c"), OrderByOperator::OrderDirection::Desc})),
+                        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "\nTime: " << ms << " ms" << std::endl;
+}
+
+void query17() {
+    // ==============
+    // SELECT UserID, SearchPhrase, COUNT(*)
+    // FROM hits
+    // GROUP BY UserID, SearchPhrase
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 17:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(q.group_by(q.scan({"UserID", "SearchPhrase"}),
+                                   make_groups(col("UserID"), col("SearchPhrase")),
+                                   make_aggs(count("*", "c"))),
+                        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "\nTime: " << ms << " ms" << std::endl;
+}
+
+void query18() {
+    // ==============
+    // SELECT UserID, extract(minute FROM EventTime) AS m, SearchPhrase, COUNT(*)
+    // FROM hits
+    // GROUP BY UserID, m, SearchPhrase
+    // ORDER BY COUNT(*) DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 18:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(q.group_by(q.scan({"UserID", "EventTime", "SearchPhrase"}),
+                              make_groups(
+                                  col("UserID"),
+                                  col("m", extract(col("EventTime"), Extract::ExtractSpec::minute)),
+                                  col("SearchPhrase")),
+                              make_aggs(count("*"))),
+                   order_specs(OrderByOperator::OrderSpec{col("*"),
+                                                          OrderByOperator::OrderDirection::Desc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "\nTime: " << ms << " ms" << std::endl;
+}
+
+void query19() {
+    // ==============
+    // SELECT UserID
+    // FROM hits
+    // WHERE UserID = 435090932899640449;
+    // ==============
+
+    std::cout << "\nQuery 19:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.filter(q.scan({"UserID"}), equal(col("UserID"), lit(435090932899640449LL)));
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "\nTime: " << ms << " ms" << std::endl;
+}
+
+void query20() {
+    // ==============
+    // SELECT COUNT(*)
+    // FROM hits
+    // WHERE URL LIKE '%google%';
+    // ==============
+
+    std::cout << "\nQuery 20:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan =
+        q.global_agg(q.filter(q.scan({"URL"}), std::make_unique<Like>(col("URL"), "%google%")),
+                     make_aggs(count("*")));
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "\nTime: " << ms << " ms" << std::endl;
+}
+
+void query21() {
+    // ==============
+    // SELECT SearchPhrase, MIN(URL), COUNT(*) AS c
+    // FROM hits
+    // WHERE URL LIKE '%google%' AND SearchPhrase <> ''
+    // GROUP BY SearchPhrase
+    // ORDER BY c DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 21:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan =
+        q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "URL"}),
+                                               and_expr(like(col("URL"), "%google%"),
+                                                        not_equal(col("SearchPhrase"), lit("")))),
+                                      make_groups(col("SearchPhrase")),
+                                      make_aggs(min("URL"), count("*", "c"))),
+                           order_specs(OrderByOperator::OrderSpec{
+                               col("c"), OrderByOperator::OrderDirection::Desc})),
+                10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query22() {
+    // ==============
+    // SELECT SearchPhrase, MIN(URL), MIN(Title), COUNT(*) AS c, COUNT(DISTINCT UserID)
+    // FROM hits
+    // WHERE Title LIKE '%Google%' AND URL NOT LIKE '%.google.%' AND SearchPhrase <> ''
+    // GROUP BY SearchPhrase
+    // ORDER BY c DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 22:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "URL", "Title", "UserID"}),
+                                       and_expr(and_expr(like(col("Title"), "%Google%"),
+                                                         not_like(col("URL"), "%.google.%")),
+                                                not_equal(col("SearchPhrase"), lit("")))),
+                              make_groups(col("SearchPhrase")),
+                              make_aggs(min("URL"), min("Title"), count("*", "c"),
+                                        count_distinct("UserID"))),
+                   order_specs(OrderByOperator::OrderSpec{col("c"),
+                                                          OrderByOperator::OrderDirection::Desc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query23() {
+    // ==============
+    // SELECT *
+    // FROM hits
+    // WHERE URL LIKE '%google%'
+    // ORDER BY EventTime
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 23:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(q.order_by(q.filter(q.scan({"*"}), like(col("URL"), "%google%")),
+                                   order_specs(OrderByOperator::OrderSpec{
+                                       col("EventTime"), OrderByOperator::OrderDirection::Asc})),
+                        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query24() {
+    // ==============
+    // SELECT SearchPhrase
+    // FROM hits
+    // WHERE SearchPhrase <> ''
+    // ORDER BY EventTime
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 24:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(q.order_by(q.filter(q.scan({"SearchPhrase", "EventTime"}),
+                                            not_equal(col("SearchPhrase"), lit(""))),
+                                   order_specs(OrderByOperator::OrderSpec{
+                                       col("EventTime"), OrderByOperator::OrderDirection::Asc})),
+                        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query25() {
+    // ==============
+    // SELECT SearchPhrase
+    // FROM hits
+    // WHERE SearchPhrase <> ''
+    // ORDER BY SearchPhrase
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 25:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(q.filter(q.scan({"SearchPhrase"}), not_equal(col("SearchPhrase"), lit(""))),
+                   order_specs(OrderByOperator::OrderSpec{col("SearchPhrase"),
+                                                          OrderByOperator::OrderDirection::Asc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query26() {
+    // ==============
+    // SELECT SearchPhrase
+    // FROM hits
+    // WHERE SearchPhrase <> ''
+    // ORDER BY EventTime, SearchPhrase
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 26:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(q.filter(q.scan({"SearchPhrase", "EventTime"}),
+                            not_equal(col("SearchPhrase"), lit(""))),
+                   order_specs(OrderByOperator::OrderSpec{col("EventTime"),
+                                                          OrderByOperator::OrderDirection::Asc},
+                               OrderByOperator::OrderSpec{col("SearchPhrase"),
+                                                          OrderByOperator::OrderDirection::Asc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query27() {
+    // ==============
+    // SELECT CounterID, AVG(STRLEN(URL)) AS l, COUNT(*) AS c
+    // FROM hits
+    // WHERE URL <> ''
+    // GROUP BY CounterID
+    // HAVING COUNT(*) > 100000
+    // ORDER BY l DESC
+    // LIMIT 25;
+    // ==============
+
+    std::cout << "\nQuery 27:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(
+            q.having(
+                q.group_by(q.filter(q.scan({"CounterID", "URL"}), not_equal(col("URL"), lit(""))),
+                           make_groups(col("CounterID")),
+                           make_aggs(avg("URL", str_len(col("URL")), "l"), count("*", "c"))),
+                greater(col("c"), lit(100000))),
+            order_specs(
+                OrderByOperator::OrderSpec{col("l"), OrderByOperator::OrderDirection::Desc})),
+        25);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query28() {
+    // ==============
+    // SELECT REGEXP_REPLACE(Referer, '^https?://(?:www\\.)?([^/]+)/.*$', '\\1') AS k,
+    //      AVG(STRLEN(Referer)) AS l,
+    //      COUNT(*) AS c,
+    //      MIN(Referer)
+    // FROM hits
+    // WHERE Referer <> ''
+    // GROUP BY k
+    // HAVING COUNT(*) > 100000
+    // ORDER BY l DESC
+    // LIMIT 25;
+    // ==============
+
+    std::cout << "\nQuery 28:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto k_expr = regexp_replace(col("Referer"), "^https?://(?:www\\.)?([^/]+)/.*$", "\\1");
+
+    auto plan = q.limit(
+        q.order_by(
+            q.having(q.group_by(q.filter(q.scan({"Referer"}), not_equal(col("Referer"), lit(""))),
+                                make_groups(col("k", std::move(k_expr))),
+                                make_aggs(avg("Referer", str_len(col("Referer")), "l"),
+                                          count("*", "c"), min("Referer"))),
+                     greater(col("c"), lit(100000))),
+            order_specs(
+                OrderByOperator::OrderSpec{col("l"), OrderByOperator::OrderDirection::Desc})),
+        25);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query29() {
+    // ==============
+    // SELECT SUM(ResolutionWidth), SUM(ResolutionWidth + 1), ..., SUM(ResolutionWidth + 89)
+    // FROM hits;
+    // ==============
+
+    std::cout << "\nQuery 29:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto scan = q.scan({"ResolutionWidth"});
+
+    auto plan = q.global_agg(
+        std::move(scan), make_aggs(sum("ResolutionWidth"),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(1))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(2))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(3))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(4))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(5))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(6))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(7))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(8))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(9))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(10))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(11))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(12))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(13))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(14))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(15))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(16))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(17))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(18))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(19))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(20))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(21))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(22))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(23))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(24))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(25))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(26))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(27))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(28))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(29))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(30))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(31))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(32))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(33))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(34))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(35))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(36))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(37))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(38))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(39))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(40))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(41))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(42))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(43))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(44))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(45))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(46))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(47))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(48))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(49))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(50))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(51))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(52))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(53))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(54))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(55))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(56))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(57))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(58))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(59))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(60))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(61))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(62))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(63))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(64))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(65))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(66))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(67))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(68))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(69))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(70))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(71))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(72))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(73))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(74))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(75))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(76))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(77))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(78))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(79))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(80))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(81))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(82))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(83))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(84))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(85))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(86))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(87))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(88))),
+                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(89)))));
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query30() {
+    // ==============
+    // SELECT SearchEngineID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth)
+    // FROM hits
+    // WHERE SearchPhrase <> ''
+    // GROUP BY SearchEngineID, ClientIP
+    // ORDER BY c DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 30:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(q.group_by(q.filter(q.scan({"SearchEngineID", "ClientIP", "IsRefresh",
+                                               "ResolutionWidth", "SearchPhrase"}),
+                                       not_equal(col("SearchPhrase"), lit(""))),
+                              make_groups(col("SearchEngineID"), col("ClientIP")),
+                              make_aggs(count("*", "c"), sum("IsRefresh"), avg("ResolutionWidth"))),
+                   order_specs(OrderByOperator::OrderSpec{col("c"),
+                                                          OrderByOperator::OrderDirection::Desc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query31() {
+    // ==============
+    // SELECT WatchID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth)
+    // FROM hits
+    // WHERE SearchPhrase <> ''
+    // GROUP BY WatchID, ClientIP
+    // ORDER BY c DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 31:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(
+            q.group_by(q.filter(q.scan({"WatchID", "ClientIP", "IsRefresh", "ResolutionWidth", "SearchPhrase"}),
+                                not_equal(col("SearchPhrase"), lit(""))),
+                       make_groups(col("WatchID"), col("ClientIP")),
+                       make_aggs(count("*", "c"), sum("IsRefresh"), avg("ResolutionWidth"))),
+            order_specs(
+                OrderByOperator::OrderSpec{col("c"), OrderByOperator::OrderDirection::Desc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query32() {
+    // ==============
+    // SELECT WatchID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth)
+    // FROM hits
+    // GROUP BY WatchID, ClientIP
+    // ORDER BY c DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 32:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(q.group_by(q.scan({"WatchID", "ClientIP", "IsRefresh", "ResolutionWidth"}),
+                              make_groups(col("WatchID"), col("ClientIP")),
+                              make_aggs(count("*", "c"), sum("IsRefresh"), avg("ResolutionWidth"))),
+                   order_specs(OrderByOperator::OrderSpec{col("c"),
+                                                          OrderByOperator::OrderDirection::Desc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query33() {
+    // ==============
+    // SELECT URL, COUNT(*) AS c
+    // FROM hits
+    // GROUP BY URL
+    // ORDER BY c DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 33:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan = q.limit(
+        q.order_by(q.group_by(q.scan({"URL"}), make_groups(col("URL")), make_aggs(count("*", "c"))),
+                   order_specs(OrderByOperator::OrderSpec{col("c"),
+                                                          OrderByOperator::OrderDirection::Desc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query34() {
+    // ==============
+    // SELECT 1, URL, COUNT(*) AS c
+    // FROM hits
+    // GROUP BY 1, URL
+    // ORDER BY c DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 34:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan =
+        q.limit(q.order_by(q.group_by(q.scan({"URL"}), make_groups(col("one", lit(1)), col("URL")),
+                                      make_aggs(count("*", "c"))),
+                           order_specs(OrderByOperator::OrderSpec{
+                               col("c"), OrderByOperator::OrderDirection::Desc})),
+                10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query35() {
+    // ==============
+    // SELECT ClientIP, ClientIP - 1, ClientIP - 2, ClientIP - 3, COUNT(*) AS c
+    // FROM hits
+    // GROUP BY ClientIP, ClientIP - 1, ClientIP - 2, ClientIP - 3
+    // ORDER BY c DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 35:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto plan =
+        q.limit(q.order_by(q.group_by(q.scan({"ClientIP"}),
+                                      make_groups(col("ClientIP"),
+                                                  col("ClientIP_m1", sub(col("ClientIP"), lit(1))),
+                                                  col("ClientIP_m2", sub(col("ClientIP"), lit(2))),
+                                                  col("ClientIP_m3", sub(col("ClientIP"), lit(3)))),
+                                      make_aggs(count("*", "c"))),
+                           order_specs(OrderByOperator::OrderSpec{
+                               col("c"), OrderByOperator::OrderDirection::Desc})),
+                10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query36() {
+    // ==============
+    // SELECT URL, COUNT(*) AS PageViews
+    // FROM hits
+    // WHERE CounterID = 62
+    //   AND EventDate >= '2013-07-01'
+    //   AND EventDate <= '2013-07-31'
+    //   AND DontCountHits = 0
+    //   AND IsRefresh = 0
+    //   AND URL <> ''
+    // GROUP BY URL
+    // ORDER BY PageViews DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 36:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto predicate =
+        and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
+                                   greater_equal(col("EventDate"), lit(parse_date("2013-07-01")))),
+                          and_expr(less_equal(col("EventDate"), lit(parse_date("2013-07-31"))),
+                                   equal(col("DontCountHits"), lit(0)))),
+                 and_expr(equal(col("IsRefresh"), lit(0)), not_equal(col("URL"), lit(""))));
+
+    auto plan =
+        q.limit(q.order_by(q.group_by(q.filter(q.scan({"URL", "CounterID", "EventDate",
+                                                       "DontCountHits", "IsRefresh"}),
+                                               std::move(predicate)),
+                                      make_groups(col("URL")), make_aggs(count("*", "PageViews"))),
+                           order_specs(OrderByOperator::OrderSpec{
+                               col("PageViews"), OrderByOperator::OrderDirection::Desc})),
+                10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query37() {
+    // ==============
+    // SELECT Title, COUNT(*) AS PageViews
+    // FROM hits
+    // WHERE CounterID = 62
+    //   AND EventDate >= '2013-07-01'
+    //   AND EventDate <= '2013-07-31'
+    //   AND DontCountHits = 0
+    //   AND IsRefresh = 0
+    //   AND Title <> ''
+    // GROUP BY Title
+    // ORDER BY PageViews DESC
+    // LIMIT 10;
+    // ==============
+
+    std::cout << "\nQuery 37:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto predicate =
+        and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
+                                   greater_equal(col("EventDate"), lit(parse_date("2013-07-01")))),
+                          and_expr(less_equal(col("EventDate"), lit(parse_date("2013-07-31"))),
+                                   equal(col("DontCountHits"), lit(0)))),
+                 and_expr(equal(col("IsRefresh"), lit(0)), not_equal(col("Title"), lit(""))));
+
+    auto plan = q.limit(
+        q.order_by(q.group_by(q.filter(q.scan({"Title", "CounterID", "EventDate", "DontCountHits",
+                                               "IsRefresh"}),
+                                       std::move(predicate)),
+                              make_groups(col("Title")), make_aggs(count("*", "PageViews"))),
+                   order_specs(OrderByOperator::OrderSpec{col("PageViews"),
+                                                          OrderByOperator::OrderDirection::Desc})),
+        10);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query38() {
+    // ==============
+    // SELECT URL, COUNT(*) AS PageViews
+    // FROM hits
+    // WHERE CounterID = 62
+    //   AND EventDate >= '2013-07-01'
+    //   AND EventDate <= '2013-07-31'
+    //   AND IsRefresh = 0
+    //   AND IsLink <> 0
+    //   AND IsDownload = 0
+    // GROUP BY URL
+    // ORDER BY PageViews DESC
+    // LIMIT 10 OFFSET 1000;
+    // ==============
+
+    std::cout << "\nQuery 38:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto predicate =
+        and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
+                                   greater_equal(col("EventDate"), lit(parse_date("2013-07-01")))),
+                          and_expr(less_equal(col("EventDate"), lit(parse_date("2013-07-31"))),
+                                   equal(col("IsRefresh"), lit(0)))),
+                 and_expr(not_equal(col("IsLink"), lit(0)), equal(col("IsDownload"), lit(0))));
+
+    auto plan =
+        q.limit(q.order_by(q.group_by(q.filter(q.scan({"URL", "CounterID", "EventDate", "IsRefresh",
+                                                       "IsLink", "IsDownload"}),
+                                               std::move(predicate)),
+                                      make_groups(col("URL")), make_aggs(count("*", "PageViews"))),
+                           order_specs(OrderByOperator::OrderSpec{
+                               col("PageViews"), OrderByOperator::OrderDirection::Desc})),
+                10, 1000);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query39() {
+    // ==============
+    // SELECT TraficSourceID, SearchEngineID, AdvEngineID,
+    //        CASE WHEN (SearchEngineID = 0 AND AdvEngineID = 0)
+    //             THEN Referer ELSE '' END AS Src,
+    //        URL AS Dst,
+    //        COUNT(*) AS PageViews
+    // FROM hits
+    // WHERE CounterID = 62
+    //   AND EventDate >= '2013-07-01'
+    //   AND EventDate <= '2013-07-31'
+    //   AND IsRefresh = 0
+    // GROUP BY TraficSourceID, SearchEngineID, AdvEngineID, Src, Dst
+    // ORDER BY PageViews DESC
+    // LIMIT 10 OFFSET 1000;
+    // ==============
+
+    std::cout << "\nQuery 39:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto src_expr =
+        case_when(and_expr(equal(col("SearchEngineID"), lit(0)), equal(col("AdvEngineID"), lit(0))),
+                  col("Referer"), lit(""));
+
+    auto predicate =
+        and_expr(and_expr(equal(col("CounterID"), lit(62)),
+                          greater_equal(col("EventDate"), lit(parse_date("2013-07-01")))),
+                 and_expr(less_equal(col("EventDate"), lit(parse_date("2013-07-31"))),
+                          equal(col("IsRefresh"), lit(0))));
+
+    auto plan = q.limit(
+        q.order_by(
+            q.group_by(q.filter(q.scan({"TraficSourceID", "SearchEngineID", "AdvEngineID",
+                                        "Referer", "URL", "CounterID", "EventDate", "IsRefresh"}),
+                                std::move(predicate)),
+                       make_groups(col("TraficSourceID"), col("SearchEngineID"), col("AdvEngineID"),
+                                   col("Src", std::move(src_expr)), col("Dst", col("URL"))),
+                       make_aggs(count("*", "PageViews"))),
+            order_specs(OrderByOperator::OrderSpec{col("PageViews"),
+                                                   OrderByOperator::OrderDirection::Desc})),
+        10, 1000);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query40() {
+    // ==============
+    // SELECT URLHash, EventDate, COUNT(*) AS PageViews
+    // FROM hits
+    // WHERE CounterID = 62
+    //   AND EventDate >= '2013-07-01'
+    //   AND EventDate <= '2013-07-31'
+    //   AND IsRefresh = 0
+    //   AND TraficSourceID IN (-1, 6)
+    //   AND RefererHash = 3594120000172545465
+    // GROUP BY URLHash, EventDate
+    // ORDER BY PageViews DESC
+    // LIMIT 10 OFFSET 100;
+    // ==============
+
+    std::cout << "\nQuery 40:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto predicate =
+        and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
+                                   greater_equal(col("EventDate"), lit(parse_date("2013-07-01")))),
+                          and_expr(less_equal(col("EventDate"), lit(parse_date("2013-07-31"))),
+                                   equal(col("IsRefresh"), lit(0)))),
+                 and_expr(in(col("TraficSourceID"), {-1, 6}),
+                          equal(col("RefererHash"), lit(3594120000172545465LL))));
+
+    auto plan = q.limit(
+        q.order_by(q.group_by(q.filter(q.scan({"URLHash", "EventDate", "CounterID", "IsRefresh",
+                                               "TraficSourceID", "RefererHash"}),
+                                       std::move(predicate)),
+                              make_groups(col("URLHash"), col("EventDate")),
+                              make_aggs(count("*", "PageViews"))),
+                   order_specs(OrderByOperator::OrderSpec{col("PageViews"),
+                                                          OrderByOperator::OrderDirection::Desc})),
+        10, 100);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query41() {
+    // ==============
+    // SELECT WindowClientWidth, WindowClientHeight, COUNT(*) AS PageViews
+    // FROM hits
+    // WHERE CounterID = 62
+    //   AND EventDate >= '2013-07-01'
+    //   AND EventDate <= '2013-07-31'
+    //   AND IsRefresh = 0
+    //   AND DontCountHits = 0
+    //   AND URLHash = 2868770270353813622
+    // GROUP BY WindowClientWidth, WindowClientHeight
+    // ORDER BY PageViews DESC
+    // LIMIT 10 OFFSET 10000;
+    // ==============
+
+    std::cout << "\nQuery 41:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto predicate =
+        and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
+                                   greater_equal(col("EventDate"), lit(parse_date("2013-07-01")))),
+                          and_expr(less_equal(col("EventDate"), lit(parse_date("2013-07-31"))),
+                                   equal(col("IsRefresh"), lit(0)))),
+                 and_expr(equal(col("DontCountHits"), lit(0)),
+                          equal(col("URLHash"), lit(2868770270353813622LL))));
+
+    auto plan = q.limit(
+        q.order_by(
+            q.group_by(q.filter(q.scan({"WindowClientWidth", "WindowClientHeight", "CounterID",
+                                        "EventDate", "IsRefresh", "DontCountHits", "URLHash"}),
+                                std::move(predicate)),
+                       make_groups(col("WindowClientWidth"), col("WindowClientHeight")),
+                       make_aggs(count("*", "PageViews"))),
+            order_specs(OrderByOperator::OrderSpec{col("PageViews"),
+                                                   OrderByOperator::OrderDirection::Desc})),
+        10, 10000);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void query42() {
+    // ==============
+    // SELECT DATE_TRUNC('minute', EventTime) AS M, COUNT(*) AS PageViews
+    // FROM hits
+    // WHERE CounterID = 62
+    //   AND EventDate >= '2013-07-14'
+    //   AND EventDate <= '2013-07-15'
+    //   AND IsRefresh = 0
+    //   AND DontCountHits = 0
+    // GROUP BY DATE_TRUNC('minute', EventTime)
+    // ORDER BY DATE_TRUNC('minute', EventTime)
+    // LIMIT 10 OFFSET 1000;
+    // ==============
+
+    std::cout << "\nQuery 42:" << std::endl;
+
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+
+    auto predicate =
+        and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
+                                   greater_equal(col("EventDate"), lit(parse_date("2013-07-14")))),
+                          and_expr(less_equal(col("EventDate"), lit(parse_date("2013-07-15"))),
+                                   equal(col("IsRefresh"), lit(0)))),
+                 equal(col("DontCountHits"), lit(0)));
+
+    auto minute_expr = date_trunc(col("EventTime"), DateTrunc::TruncSpec::minute);
+
+    auto plan =
+        q.limit(q.order_by(q.group_by(q.filter(q.scan({"EventTime", "CounterID", "EventDate",
+                                                       "IsRefresh", "DontCountHits"}),
+                                               std::move(predicate)),
+                                      make_groups(col("M", std::move(minute_expr))),
+                                      make_aggs(count("*", "PageViews"))),
+                           order_specs(OrderByOperator::OrderSpec{
+                               col("M"), OrderByOperator::OrderDirection::Asc})),
+
+                10, 1000);
+
+    auto start = std::chrono::steady_clock::now();
+    while (Batch* output_batch = plan->next()) {
+        CsvWriter::write_batch(*output_batch);
+    }
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << "\nTime: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
+              << std::endl;
+}
+
+void run_query(int n) {
+    switch (n) {
+    case 0:
+        query00();
+        break;
+    case 1:
+        query01();
+        break;
+    case 2:
+        query02();
+        break;
+    case 3:
+        query03();
+        break;
+    case 4:
+        query04();
+        break;
+    case 5:
+        query05();
+        break;
+    case 6:
+        query06();
+        break;
+    case 7:
+        query07();
+        break;
+    case 8:
+        query08();
+        break;
+    case 9:
+        query09();
+        break;
+
+    case 10:
+        query10();
+        break;
+    case 11:
+        query11();
+        break;
+    case 12:
+        query12();
+        break;
+    case 13:
+        query13();
+        break;
+    case 14:
+        query14();
+        break;
+    case 15:
+        query15();
+        break;
+    case 16:
+        query16();
+        break;
+    case 17:
+        query17();
+        break;
+    case 18:
+        query18();
+        break;
+    case 19:
+        query19();
+        break;
+    case 20:
+        query20();
+        break;
+    case 21:
+        query21();
+        break;
+    case 22:
+        query22();
+        break;
+    case 23:
+        query23();
+        break;
+    case 24:
+        query24();
+        break;
+    case 25:
+        query25();
+        break;
+    case 26:
+        query26();
+        break;
+    case 27:
+        query27();
+        break;
+    case 28:
+        query28();
+        break;
+    case 29:
+        query29();
+        break;
+    case 30:
+        query30();
+        break;
+    case 31:
+        query31();
+        break;
+    case 32:
+        query32();
+        break;
+    case 33:
+        query33();
+        break;
+    case 34:
+        query34();
+        break;
+    case 35:
+        query35();
+        break;
+    case 36:
+        query36();
+        break;
+    case 37:
+        query37();
+        break;
+    case 38:
+        query38();
+        break;
+    case 39:
+        query39();
+        break;
+    case 40:
+        query40();
+        break;
+    case 41:
+        query41();
+        break;
+    case 42:
+        query42();
+        break;
+    default:
+        std::cerr << "Invalid query: " << n << std::endl;
+        break;
+    }
+}
+
 int main(int argc, char* argv[]) {
     if (argc != 3) {
         std::cerr << "Usage: " << argv[0] << " <schema.csv>" << " <data.csv>" << std::endl;
@@ -157,582 +1956,13 @@ int main(int argc, char* argv[]) {
     //     std::abort();
     // }
 
-    // ==============
-    // Query 1:
-    // SELECT COUNT(*) FROM hits;
-    // ==============
-    {
-        std::cout << "Query 1" << std::endl;
-
-        auto plan = std::make_unique<GlobalAggOperator>(
-            std::make_unique<ScanOperator>(output_file, std::vector<std::string>{}),
-            make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"))));
-
-        auto start = std::chrono::steady_clock::now();
-        Batch* output_batch = plan->next();
-        auto end = std::chrono::steady_clock::now();
-
-        CsvWriter::write_batch(*output_batch);
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::vector<int> num_query(43);
+    std::iota(num_query.begin(), num_query.end(), 0);
+    for (auto n : num_query) {
+        run_query(n);
     }
 
-    // ==============
-    // Query 2:
-    // SELECT COUNT(*) FROM hits WHERE AdvEngineID <> 0;
-    // ==============
-    {
-        std::cout << "\nQuery 2" << std::endl;
-
-        auto plan = std::make_unique<GlobalAggOperator>(
-            std::make_unique<FilterOperator>(
-                std::make_unique<ScanOperator>(output_file,
-                                               std::vector<std::string>{"AdvEngineID"}),
-                std::make_unique<Compare>(std::make_unique<ColumnRef>("AdvEngineID"),
-                                          std::make_unique<Literal>(0), Compare::Cmp::NE)),
-            make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"))));
-
-        auto start = std::chrono::steady_clock::now();
-        Batch* output_batch = plan->next();
-        auto end = std::chrono::steady_clock::now();
-
-        CsvWriter::write_batch(*output_batch);
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 3:
-    // SELECT SUM(AdvEngineID), COUNT(*), AVG(ResolutionWidth) FROM hits;
-    // ==============
-    {
-        std::cout << "\nQuery 3" << std::endl;
-
-        auto plan = std::make_unique<GlobalAggOperator>(
-            std::make_unique<ScanOperator>(
-                output_file, std::vector<std::string>{"AdvEngineID", "ResolutionWidth"}),
-            make_aggs(
-                AggSpec(AggType::Sum, "AdvEngineID", std::make_unique<ColumnRef>("AdvEngineID")),
-                AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*")),
-                AggSpec(AggType::Avg, "ResolutionWidth",
-                        std::make_unique<ColumnRef>("ResolutionWidth"))));
-
-        auto start = std::chrono::steady_clock::now();
-        Batch* output_batch = plan->next();
-        auto end = std::chrono::steady_clock::now();
-
-        CsvWriter::write_batch(*output_batch);
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 4:
-    // SELECT AVG(UserID) FROM hits;
-    // ==============
-    {
-        std::cout << "\nQuery 4" << std::endl;
-
-        auto plan = std::make_unique<GlobalAggOperator>(
-            std::make_unique<ScanOperator>(output_file, std::vector<std::string>{"UserID"}),
-            make_aggs(AggSpec(AggType::Avg, "UserID", std::make_unique<ColumnRef>("UserID"))));
-
-        auto start = std::chrono::steady_clock::now();
-        Batch* output_batch = plan->next();
-        auto end = std::chrono::steady_clock::now();
-
-        CsvWriter::write_batch(*output_batch);
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 5:
-    // SELECT COUNT(DISTINCT UserID) FROM hits;
-    // ==============
-    {
-        std::cout << "\nQuery 5" << std::endl;
-
-        auto plan = std::make_unique<GlobalAggOperator>(
-            std::make_unique<ScanOperator>(output_file, std::vector<std::string>{"UserID"}),
-            make_aggs(
-                AggSpec(AggType::CountDistinct, "UserID", std::make_unique<ColumnRef>("UserID"))));
-
-        auto start = std::chrono::steady_clock::now();
-        Batch* output_batch = plan->next();
-        auto end = std::chrono::steady_clock::now();
-
-        CsvWriter::write_batch(*output_batch);
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 6:
-    // SELECT COUNT(DISTINCT SearchPhrase) FROM hits;
-    // ==============
-    {
-        std::cout << "\nQuery 6" << std::endl;
-
-        auto plan = std::make_unique<GlobalAggOperator>(
-            std::make_unique<ScanOperator>(output_file, std::vector<std::string>{"SearchPhrase"}),
-            make_aggs(AggSpec(AggType::CountDistinct, "SearchPhrase",
-                              std::make_unique<ColumnRef>("SearchPhrase"))));
-
-        auto start = std::chrono::steady_clock::now();
-        Batch* output_batch = plan->next();
-        auto end = std::chrono::steady_clock::now();
-
-        CsvWriter::write_batch(*output_batch);
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 7:
-    // SELECT MIN(EventDate), MAX(EventDate) FROM hits;
-    // ==============
-    {
-        std::cout << "\nQuery 7" << std::endl;
-
-        auto plan = std::make_unique<GlobalAggOperator>(
-            std::make_unique<ScanOperator>(output_file, std::vector<std::string>{"EventDate"}),
-            make_aggs(
-                AggSpec(AggType::Min, "EventDate", std::make_unique<ColumnRef>("EventDate")),
-                AggSpec(AggType::Max, "EventDate", std::make_unique<ColumnRef>("EventDate"))));
-
-        auto start = std::chrono::steady_clock::now();
-        Batch* output_batch = plan->next();
-        auto end = std::chrono::steady_clock::now();
-
-        CsvWriter::write_batch(*output_batch);
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 8:
-    // SELECT AdvEngineID, COUNT(*) FROM hits WHERE AdvEngineID <> 0 GROUP BY AdvEngineID ORDER BY
-    // COUNT(*) DESC;
-    // ==============
-    {
-        std::cout << "\nQuery 8" << std::endl;
-
-        auto plan = std::make_unique<OrderByOperator>(
-            std::make_unique<GroupByOperator>(
-                std::make_unique<FilterOperator>(
-                    std::make_unique<ScanOperator>(output_file,
-                                                   std::vector<std::string>{"AdvEngineID"}),
-                    std::make_unique<Compare>(std::make_unique<ColumnRef>("AdvEngineID"),
-                                              std::make_unique<Literal>(0), Compare::Cmp::NE)),
-                make_groups(std::make_unique<ColumnRef>("AdvEngineID")),
-                make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*")))),
-            order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("*"),
-                                                   OrderByOperator::OrderDirection::Desc}));
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 9:
-    // SELECT RegionID, COUNT(DISTINCT UserID) AS u FROM hits GROUP BY RegionID ORDER BY u DESC
-    // LIMIT 10;
-    // ==============
-    {
-        std::cout << "\nQuery 9" << std::endl;
-
-        auto plan = std::make_unique<LimitOperator>(
-            std::make_unique<OrderByOperator>(
-                std::make_unique<GroupByOperator>(
-                    std::make_unique<ScanOperator>(output_file,
-                                                   std::vector<std::string>{"RegionID", "UserID"}),
-                    make_groups(std::make_unique<ColumnRef>("RegionID")),
-                    make_aggs(AggSpec(AggType::CountDistinct, "UserID",
-                                      std::make_unique<ColumnRef>("UserID"), "u"))),
-                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("u"),
-                                                       OrderByOperator::OrderDirection::Desc})),
-            10);
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 10:
-    // SELECT RegionID, SUM(AdvEngineID), COUNT(*) AS c, AVG(ResolutionWidth), COUNT(DISTINCT
-    // UserID) FROM hits GROUP BY RegionID ORDER BY c DESC LIMIT 10;
-    // ==============
-    {
-        std::cout << "\nQuery 10" << std::endl;
-
-        auto plan = std::make_unique<LimitOperator>(
-            std::make_unique<OrderByOperator>(
-                std::make_unique<GroupByOperator>(
-                    std::make_unique<ScanOperator>(
-                        output_file, std::vector<std::string>{"RegionID", "AdvEngineID",
-                                                              "ResolutionWidth", "UserID"}),
-                    make_groups(std::make_unique<ColumnRef>("RegionID")),
-                    make_aggs(AggSpec(AggType::Sum, "AdvEngineID",
-                                      std::make_unique<ColumnRef>("AdvEngineID")),
-                              AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"),
-                              AggSpec(AggType::Avg, "ResolutionWidth",
-                                      std::make_unique<ColumnRef>("ResolutionWidth")),
-                              AggSpec(AggType::CountDistinct, "UserID",
-                                      std::make_unique<ColumnRef>("UserID")))),
-                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("c"),
-                                                       OrderByOperator::OrderDirection::Desc})),
-            10);
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 11:
-    // SELECT MobilePhoneModel, COUNT(DISTINCT UserID) AS u FROM hits WHERE MobilePhoneModel <> ''
-    // GROUP BY MobilePhoneModel ORDER BY u DESC LIMIT 10;
-    // ==============
-    {
-        std::cout << "\nQuery 11" << std::endl;
-
-        auto plan = std::make_unique<LimitOperator>(
-            std::make_unique<OrderByOperator>(
-                std::make_unique<GroupByOperator>(
-                    std::make_unique<FilterOperator>(
-                        std::make_unique<ScanOperator>(
-                            output_file, std::vector<std::string>{"MobilePhoneModel", "UserID"}),
-                        std::make_unique<Compare>(std::make_unique<ColumnRef>("MobilePhoneModel"),
-                                                  std::make_unique<Literal>(""),
-                                                  columnar::Compare::Cmp::NE)),
-                    make_groups(std::make_unique<ColumnRef>("MobilePhoneModel")),
-                    make_aggs(AggSpec(AggType::CountDistinct, "UserID",
-                                      std::make_unique<ColumnRef>("UserID"), "u"))),
-                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("u"),
-                                                       OrderByOperator::OrderDirection::Desc})),
-            10);
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 12:
-    // SELECT MobilePhone, MobilePhoneModel, COUNT(DISTINCT UserID) AS u FROM hits WHERE
-    // MobilePhoneModel <> '' GROUP BY MobilePhone, MobilePhoneModel ORDER BY u DESC LIMIT 10;
-    // ==============
-    {
-        std::cout << "\nQuery 12" << std::endl;
-
-        auto plan = std::make_unique<LimitOperator>(
-            std::make_unique<OrderByOperator>(
-                std::make_unique<GroupByOperator>(
-                    std::make_unique<FilterOperator>(
-                        std::make_unique<ScanOperator>(
-                            output_file,
-                            std::vector<std::string>{"MobilePhone", "MobilePhoneModel", "UserID"}),
-                        std::make_unique<Compare>(std::make_unique<ColumnRef>("MobilePhoneModel"),
-                                                  std::make_unique<Literal>(""), Compare::Cmp::NE)),
-                    make_groups(std::make_unique<ColumnRef>("MobilePhone"),
-                                std::make_unique<ColumnRef>("MobilePhoneModel")),
-                    make_aggs(AggSpec(AggType::CountDistinct, "UserID",
-                                      std::make_unique<ColumnRef>("UserID"), "u"))),
-                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("u"),
-                                                       OrderByOperator::OrderDirection::Desc})),
-            10);
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 13:
-    // SELECT SearchPhrase, COUNT(*) AS c FROM hits WHERE SearchPhrase <> '' GROUP BY SearchPhrase
-    // ORDER BY c DESC LIMIT 10;
-    // ==============
-    {
-        std::cout << "\nQuery 13" << std::endl;
-
-        auto plan = std::make_unique<LimitOperator>(
-            std::make_unique<OrderByOperator>(
-                std::make_unique<GroupByOperator>(
-                    std::make_unique<FilterOperator>(
-                        std::make_unique<ScanOperator>(output_file,
-                                                       std::vector<std::string>{"SearchPhrase"}),
-                        std::make_unique<Compare>(std::make_unique<ColumnRef>("SearchPhrase"),
-                                                  std::make_unique<Literal>(""), Compare::Cmp::NE)),
-                    make_groups(std::make_unique<ColumnRef>("SearchPhrase")),
-                    make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
-                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("c"),
-                                                       OrderByOperator::OrderDirection::Desc})),
-            10);
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 14:
-    // SELECT SearchPhrase, COUNT(DISTINCT UserID) AS u
-    // FROM hits WHERE SearchPhrase <> ''
-    // GROUP BY SearchPhrase ORDER BY u DESC LIMIT 10;
-    // ==============
-    {
-        std::cout << "\nQuery 14" << std::endl;
-
-        auto plan = std::make_unique<LimitOperator>(
-            std::make_unique<OrderByOperator>(
-                std::make_unique<GroupByOperator>(
-                    std::make_unique<FilterOperator>(
-                        std::make_unique<ScanOperator>(
-                            output_file, std::vector<std::string>{"SearchPhrase", "UserID"}),
-                        std::make_unique<Compare>(std::make_unique<ColumnRef>("SearchPhrase"),
-                                                  std::make_unique<Literal>(""), Compare::Cmp::NE)),
-                    make_groups(std::make_unique<ColumnRef>("SearchPhrase")),
-                    make_aggs(AggSpec(AggType::CountDistinct, "UserID",
-                                      std::make_unique<ColumnRef>("UserID"), "u"))),
-                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("u"),
-                                                       OrderByOperator::OrderDirection::Desc})),
-            10);
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 15:
-    // SELECT SearchEngineID, SearchPhrase, COUNT(*) AS c
-    // FROM hits WHERE SearchPhrase <> ''
-    // GROUP BY SearchEngineID, SearchPhrase
-    // ORDER BY c DESC LIMIT 10;
-    // ==============
-    {
-        std::cout << "\nQuery 15" << std::endl;
-
-        auto plan = std::make_unique<LimitOperator>(
-            std::make_unique<OrderByOperator>(
-                std::make_unique<GroupByOperator>(
-                    std::make_unique<FilterOperator>(
-                        std::make_unique<ScanOperator>(
-                            output_file,
-                            std::vector<std::string>{"SearchEngineID", "SearchPhrase"}),
-                        std::make_unique<Compare>(std::make_unique<ColumnRef>("SearchPhrase"),
-                                                  std::make_unique<Literal>(""), Compare::Cmp::NE)),
-                    make_groups(std::make_unique<ColumnRef>("SearchEngineID"),
-                                std::make_unique<ColumnRef>("SearchPhrase")),
-                    make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
-                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("c"),
-                                                       OrderByOperator::OrderDirection::Desc})),
-            10);
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 16:
-    // SELECT UserID, COUNT(*) FROM hits
-    // GROUP BY UserID ORDER BY COUNT(*) DESC LIMIT 10;
-    // ==============
-    {
-        std::cout << "\nQuery 16" << std::endl;
-
-        auto plan = std::make_unique<LimitOperator>(
-            std::make_unique<OrderByOperator>(
-                std::make_unique<GroupByOperator>(
-                    std::make_unique<ScanOperator>(output_file, std::vector<std::string>{"UserID"}),
-                    make_groups(std::make_unique<ColumnRef>("UserID")),
-                    make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
-                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("c"),
-                                                       OrderByOperator::OrderDirection::Desc})),
-            10);
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 17:
-    // SELECT UserID, SearchPhrase, COUNT(*)
-    // FROM hits
-    // GROUP BY UserID, SearchPhrase
-    // ORDER BY COUNT(*) DESC LIMIT 10;
-    // ==============
-    {
-        std::cout << "\nQuery 17" << std::endl;
-
-        auto plan = std::make_unique<LimitOperator>(
-            std::make_unique<OrderByOperator>(
-                std::make_unique<GroupByOperator>(
-                    std::make_unique<ScanOperator>(
-                        output_file, std::vector<std::string>{"UserID", "SearchPhrase"}),
-                    make_groups(std::make_unique<ColumnRef>("UserID"),
-                                std::make_unique<ColumnRef>("SearchPhrase")),
-                    make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
-                order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("c"),
-                                                       OrderByOperator::OrderDirection::Desc})),
-            10);
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 18:
-    // SELECT UserID, SearchPhrase, COUNT(*)
-    // FROM hits
-    // GROUP BY UserID, SearchPhrase
-    // LIMIT 10;
-    // ==============
-    {
-        std::cout << "\nQuery 18" << std::endl;
-
-        auto plan = std::make_unique<LimitOperator>(
-            std::make_unique<GroupByOperator>(
-                std::make_unique<ScanOperator>(output_file,
-                                               std::vector<std::string>{"UserID", "SearchPhrase"}),
-                make_groups(std::make_unique<ColumnRef>("UserID"),
-                            std::make_unique<ColumnRef>("SearchPhrase")),
-                make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
-            10);
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
-
-    // ==============
-    // Query 19:
-    // SELECT UserID,
-    //        extract(minute FROM EventTime) AS m,
-    //        SearchPhrase,
-    //        COUNT(*)
-    // FROM hits
-    // GROUP BY UserID, m, SearchPhrase
-    // ORDER BY COUNT(*) DESC LIMIT 10;
-    // ==============
-    // {
-    //     std::cout << "\nQuery 19" << std::endl;
-
-    //     auto plan = std::make_unique<LimitOperator>(
-    //         std::make_unique<OrderByOperator>(
-    //             std::make_unique<GroupByOperator>(
-    //                 std::make_unique<ScanOperator>(
-    //                     output_file,
-    //                     std::vector<std::string>{"UserID", "EventTime", "SearchPhrase"}),
-    //                 make_groups(
-    //                     std::make_unique<ColumnRef>("UserID"),
-    //                     std::make_unique<ExtractMinute>(std::make_unique<ColumnRef>("EventTime")),
-    //                     std::make_unique<ColumnRef>("SearchPhrase")),
-    //                 make_aggs(AggSpec(AggType::Count, "*", std::make_unique<ColumnRef>("*"), "c"))),
-    //             order_specs(OrderByOperator::OrderSpec{std::make_unique<ColumnRef>("c"),
-    //                                                    OrderByOperator::OrderDirection::Desc})),
-    //         10);
-
-    //     auto start = std::chrono::steady_clock::now();
-    //     while (Batch* output_batch = plan->next()) {
-    //         CsvWriter::write_batch(*output_batch);
-    //     }
-    //     auto end = std::chrono::steady_clock::now();
-
-    //     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    //     std::cout << "\nTime: " << ms << " ms" << std::endl;
-    // }
-
-    // ==============
-    // Query 20:
-    // SELECT UserID FROM hits WHERE UserID = 435090932899640449;
-    // ==============
-    {
-        std::cout << "\nQuery 20" << std::endl;
-
-        auto plan = std::make_unique<FilterOperator>(
-            std::make_unique<ScanOperator>(output_file, std::vector<std::string>{"UserID"}),
-            std::make_unique<Compare>(std::make_unique<ColumnRef>("UserID"),
-                                      std::make_unique<Literal>(435090932899640449LL),
-                                      Compare::Cmp::E));
-
-        auto start = std::chrono::steady_clock::now();
-        while (Batch* output_batch = plan->next()) {
-            CsvWriter::write_batch(*output_batch);
-        }
-        auto end = std::chrono::steady_clock::now();
-
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "\nTime: " << ms << " ms" << std::endl;
-    }
+    // SLOW QUERIES: 20, 21, 22, 23, 28, 32.
 
     return 0;
 }

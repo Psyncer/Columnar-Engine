@@ -6,6 +6,12 @@ add_library(columnar_engine
     expression.cpp
 )
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(RE2 REQUIRED re2)
+
+target_include_directories(columnar_engine PUBLIC ${RE2_INCLUDE_DIRS})
+target_link_libraries(columnar_engine PUBLIC ${RE2_LIBRARIES})
+
 target_include_directories(columnar_engine
     PUBLIC ${PROJECT_SOURCE_DIR}/include
     PUBLIC ${PROJECT_SOURCE_DIR}/include/converter

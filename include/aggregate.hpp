@@ -109,8 +109,8 @@ void dispatch_agg(const Batch& batch, AggState& state,
 
 class AggCount {
 public:
-    void operator()(size_t row_count, AggState& state) {
-        state.count += static_cast<int64_t>(row_count);
+    void operator()(const std::vector<size_t>& active_rows, AggState& state) {
+        state.count += static_cast<int64_t>(active_rows.size());
     }
 };
 

@@ -10,6 +10,9 @@
 namespace columnar {
 
 class IOperator {
+protected:
+    Schema global_table_;
+
 public:
     virtual Batch* next() = 0;
     virtual ~IOperator() = default;
@@ -130,6 +133,7 @@ private:
     std::vector<OrderSpec> order_specs_;
     Batch accumulated_batch_;
     Batch result_batch_;
+    size_t global_offset_ = 0;
     bool done_ = false;
 
 public:
@@ -152,6 +156,22 @@ public:
     Batch* next() override;
 
     const Schema& get_schema() const override;
+};
+
+class HavingOperator : public IOperator {
+private:
+    std::unique_ptr<IOperator> child_;
+    std::unique_ptr<IFilterExpression> filter_;
+
+public:
+    HavingOperator(std::unique_ptr<IOperator> child, std::unique_ptr<IFilterExpression> filter);
+
+    Batch* next() override;
+
+    const Schema& get_schema() const override;
+
+private:
+    static void apply_mask(Batch* batch, std::vector<uint8_t>& mask);
 };
 
 }  // namespace columnar

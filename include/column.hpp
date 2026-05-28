@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "assert.hpp"
 #include "config.hpp"
@@ -22,6 +23,9 @@ private:
     size_t idx_;
 
 public:
+    Column() {
+    }
+
     Column(Type type, size_t idx) : type_(type), idx_(idx) {
         switch (type_) {
         case Type::Int16:
@@ -117,7 +121,8 @@ public:
     }
 
     Column(const Column& other)
-        : capacity_(other.capacity_), head_(other.head_), type_(other.type_), idx_(other.idx_) {
+        : capacity_(other.capacity_), head_(other.head_),
+          type_(other.type_), idx_(other.idx_) {
         switch (type_) {
         case Type::Int16: {
             allocate<int16_t>();
@@ -174,57 +179,6 @@ public:
 
     Column& operator=(const Column& other) = delete;
 
-    // Column& operator=(const Column& other) {
-    //     if (this == &other) {
-    //         return *this;
-    //     }
-
-    //     std::free(data_);
-    //     clear();
-
-    //     capacity_ = other.capacity_;
-    //     head_ = other.head_;
-    //     type_ = other.type_;
-    //     idx_ = other.idx_;
-
-    //     switch (type_) {
-    //     case Type::Int16: {
-    //         allocate<int16_t>();
-    //         std::memcpy(data_, other.data_, head_ * sizeof(int16_t));
-    //         break;
-    //     }
-    //     case Type::Int32: {
-    //         allocate<int32_t>();
-    //         std::memcpy(data_, other.data_, head_ * sizeof(int32_t));
-    //         break;
-    //     }
-    //     case Type::Int64: {
-    //         allocate<int64_t>();
-    //         std::memcpy(data_, other.data_, head_ * sizeof(int64_t));
-    //         break;
-    //     }
-    //     case Type::String: {
-    //         allocate_string();
-    //         size_t bytes = static_cast<size_t>(other.offsets_.back());
-    //         std::memcpy(data_, other.data_, bytes);
-    //         offsets_ = other.offsets_;
-    //         break;
-    //     }
-    //     case Type::Date: {
-    //         allocate<int32_t>();
-    //         std::memcpy(data_, other.data_, head_ * sizeof(int32_t));
-    //         break;
-    //     }
-    //     case Type::Timestamp: {
-    //         allocate<int64_t>();
-    //         std::memcpy(data_, other.data_, head_ * sizeof(int64_t));
-    //         break;
-    //     }
-    //     }
-
-    //     return *this;
-    // }
-
     Column& operator=(Column&& other) noexcept {
         if (this == &other) {
             return *this;
@@ -275,7 +229,9 @@ public:
             push_value<int64_t>(static_cast<int64_t>(value));
             break;
         default:
-            // wrong type
+            std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__
+                      << "\n  in " << __func__ << std::endl;
+            std::abort();
             break;
         }
     }
@@ -302,7 +258,7 @@ public:
     }
 
     template <typename T>
-    void emplace_column(void* col, size_t size) {
+    void emplace_column(const void* col, size_t size) {
         while (head_ + (size / sizeof(T)) > capacity_) {
             reallocate<T>();
         }
@@ -311,12 +267,12 @@ public:
         head_ += (size / sizeof(T));
     }
 
-    void emplace_string_column(void* col, size_t size) {
+    void emplace_string_column(const void* col, size_t size) {
         while (static_cast<size_t>(offsets_.back()) + size > kStringCapacity * capacity_) {
             reallocate_string();
         }
 
-        const char* current = static_cast<char*>(col);
+        const char* current = static_cast<const char*>(col);
         const char* end = current + size;
 
         while (current < end) {
@@ -344,7 +300,7 @@ public:
     }
 
     std::string get_string(size_t idx) const {
-        ASS(idx < head_, "index out of range");
+        // ASS(idx < head_, "index out of range");
 
         std::string str;
         size_t size = static_cast<size_t>(offsets_[idx + 1] - offsets_[idx]);
@@ -356,6 +312,14 @@ public:
 
     size_t size() const {
         return head_;
+    }
+
+    int32_t total_string_size() const {
+        return offsets_.back();
+    }
+
+    size_t capacity() const {
+        return capacity_;
     }
 
     Type type() const {

@@ -56,7 +56,7 @@ Batch* GlobalAggOperator::next() {
 
             switch (spec.agg_type) {
             case AggType::Count: {
-                AggCount{}(batch->row_count_, state);
+                AggCount{}(batch->active_rows_, state);
                 break;
             }
             case AggType::CountDistinct: {
@@ -139,15 +139,12 @@ const Schema& FilterOperator::get_schema() const {
 }
 
 void FilterOperator::apply_mask(Batch* batch, std::vector<uint8_t>& mask) {
-    size_t new_row_count = 0;
     batch->active_rows_.clear();
     for (size_t i = 0; i < mask.size(); ++i) {
         if (mask[i] == 1) {
             batch->active_rows_.push_back(i);
-            new_row_count++;
         }
     }
-    batch->row_count_ = new_row_count;
 }
 
 GroupByOperator::GroupByOperator(std::unique_ptr<IOperator>&& child,
@@ -233,48 +230,100 @@ Batch* GroupByOperator::next() {
                         }
                         break;
                     case AggType::Min: {
-                        int64_t val;
                         switch (col->type()) {
-                        case Type::Int16:
-                            val = col->get_value<int16_t>(row);
-                            break;
-                        case Type::Int32:
-                            val = col->get_value<int32_t>(row);
-                            break;
-                        case Type::Int64:
-                            val = col->get_value<int64_t>(row);
-                            break;
-                        default:
-                            // wrong type
-                            val = 0;
+                        case Type::Int16: {
+                            int64_t val = col->get_value<int16_t>(row);
+                            if (val < state.min) {
+                                state.min = val;
+                            }
                             break;
                         }
-                        if (val < state.min) {
-                            state.min = val;
+                        case Type::Int32: {
+                            int64_t val = col->get_value<int32_t>(row);
+                            if (val < state.min) {
+                                state.min = val;
+                            }
+                            break;
                         }
-                        break;
+                        case Type::Int64: {
+                            int64_t val = col->get_value<int64_t>(row);
+                            if (val < state.min) {
+                                state.min = val;
+                            }
+                            break;
+                        }
+                        case Type::String: {
+                            std::string str = col->get_string(row);
+                            if (str < state.str_min) {
+                                state.str_min = str;
+                            }
+                            break;
+                        }
+                        case Type::Date: {
+                            int64_t val = col->get_value<int32_t>(row);
+
+                            if (val < state.min) {
+                                state.min = val;
+                            }
+                            break;
+                        }
+                        case Type::Timestamp: {
+                            int64_t val = col->get_value<int64_t>(row);
+
+                            if (val < state.min) {
+                                state.min = val;
+                            }
+                            break;
+                        }
+                        }
                     }
                     case AggType::Max: {
-                        int64_t val;
                         switch (col->type()) {
-                        case Type::Int16:
-                            val = col->get_value<int16_t>(row);
-                            break;
-                        case Type::Int32:
-                            val = col->get_value<int32_t>(row);
-                            break;
-                        case Type::Int64:
-                            val = col->get_value<int64_t>(row);
-                            break;
-                        default:
-                            // wrong type
-                            val = 0;
+                        case Type::Int16: {
+                            int64_t val = col->get_value<int16_t>(row);
+                            if (val > state.min) {
+                                state.min = val;
+                            }
                             break;
                         }
-                        if (val > state.max) {
-                            state.max = val;
+                        case Type::Int32: {
+                            int64_t val = col->get_value<int32_t>(row);
+                            if (val > state.min) {
+                                state.min = val;
+                            }
+                            break;
                         }
-                        break;
+                        case Type::Int64: {
+                            int64_t val = col->get_value<int64_t>(row);
+                            if (val > state.min) {
+                                state.min = val;
+                            }
+                            break;
+                        }
+                        case Type::String: {
+                            std::string str = col->get_string(row);
+                            if (str > state.str_min) {
+                                state.str_min = str;
+                            }
+                            break;
+                        }
+                        case Type::Date: {
+                            int64_t val = col->get_value<int32_t>(row);
+
+                            if (val > state.min) {
+                                state.min = val;
+                            }
+                            break;
+                        }
+                        case Type::Timestamp: {
+                            int64_t val = col->get_value<int64_t>(row);
+
+                            if (val > state.min) {
+                                state.min = val;
+                            }
+                            break;
+                        }
+                        }
                     }
                     case AggType::CountDistinct: {
                         switch (col->type()) {
@@ -290,7 +339,11 @@ Batch* GroupByOperator::next() {
                         case Type::String:
                             state.str_distinct.insert(col->get_string(row));
                             break;
-                        default:
+                        case Type::Date:
+                            state.distinct.insert(col->get_value<int32_t>(row));
+                            break;
+                        case Type::Timestamp:
+                            state.distinct.insert(col->get_value<int64_t>(row));
                             break;
                         }
                         break;
@@ -324,12 +377,13 @@ Batch* GroupByOperator::next() {
     for (const auto& expr : group_exprs_) {
         ColumnRef* ref = dynamic_cast<ColumnRef*>(expr.get());
         std::string name = ref->name();
-        result_schema_.add_column(name, schema.get_column_type(name));
+        Type type = ref->output_type();
+        result_schema_.add_column(name, type);
         needed_columns.push_back(name);
     }
 
     for (const auto& spec : specs_) {
-        if (schema.get_column_type(spec.name) == Type::String) {
+        if (schema.get_column_type(spec.name) == Type::String && spec.expr == nullptr) {
             result_schema_.add_column(spec.output_name, Type::String);
         } else if (spec.agg_type == AggType::Min || spec.agg_type == AggType::Max) {
             result_schema_.add_column(spec.output_name, schema.get_column_type(spec.name));
@@ -383,41 +437,46 @@ Batch* OrderByOperator::next() {
 
     while (Batch* batch = child_->next()) {
         if (accumulated_batch_.columns_.empty()) {
-            accumulated_batch_ =
-                Batch(child_->get_schema(), child_->get_schema().get_column_names());
+            accumulated_batch_ = Batch(*batch);
+            global_offset_ = accumulated_batch_.columns_[0].size();
+            continue;
+        }
+
+        for (size_t i = 0; i < batch->column_count_; ++i) {
+            switch (accumulated_batch_.columns_[i].type()) {
+            case Type::Int16:
+                accumulated_batch_.columns_[i].emplace_column<int16_t>(
+                    batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int16_t));
+                break;
+            case Type::Int32:
+                accumulated_batch_.columns_[i].emplace_column<int32_t>(
+                    batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int32_t));
+                break;
+            case Type::Int64:
+                accumulated_batch_.columns_[i].emplace_column<int64_t>(
+                    batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int64_t));
+                break;
+            case Type::String:
+                for (size_t row = 0; row < batch->columns_[i].size(); ++row) {
+                    accumulated_batch_.columns_[i].push_string(batch->columns_[i].get_string(row));
+                }
+                break;
+            case Type::Date:
+                accumulated_batch_.columns_[i].emplace_column<int32_t>(
+                    batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int32_t));
+                break;
+            case Type::Timestamp:
+                accumulated_batch_.columns_[i].emplace_column<int64_t>(
+                    batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int64_t));
+                break;
+            }
         }
 
         for (const auto& row : batch->active_rows_) {
-            for (size_t i = 0; i < batch->column_count_; ++i) {
-                switch (batch->columns_[i].type()) {
-                case Type::Int16:
-                    accumulated_batch_.columns_[i].push_value<int16_t>(
-                        batch->columns_[i].get_value<int16_t>(row));
-                    break;
-                case Type::Int32:
-                    accumulated_batch_.columns_[i].push_value<int32_t>(
-                        batch->columns_[i].get_value<int32_t>(row));
-                    break;
-                case Type::Int64:
-                    accumulated_batch_.columns_[i].push_value<int64_t>(
-                        batch->columns_[i].get_value<int64_t>(row));
-                    break;
-                case Type::String:
-                    accumulated_batch_.columns_[i].push_string(batch->columns_[i].get_string(row));
-                    break;
-                case Type::Date:
-                    accumulated_batch_.columns_[i].push_value<int32_t>(
-                        batch->columns_[i].get_value<int32_t>(row));
-                    break;
-                case Type::Timestamp:
-                    accumulated_batch_.columns_[i].push_value<int64_t>(
-                        batch->columns_[i].get_value<int64_t>(row));
-                    break;
-                }
-            }
-            accumulated_batch_.active_rows_.push_back(accumulated_batch_.row_count_);
-            accumulated_batch_.row_count_++;
+            accumulated_batch_.active_rows_.push_back(row + global_offset_);
         }
+        accumulated_batch_.row_count_ += batch->row_count_;
+        global_offset_ = accumulated_batch_.columns_[0].size();
     }
 
     std::vector<size_t>& indices = accumulated_batch_.active_rows_;
@@ -532,6 +591,40 @@ Batch* LimitOperator::next() {
 }
 
 const Schema& LimitOperator::get_schema() const {
+    return child_->get_schema();
+}
+
+HavingOperator::HavingOperator(std::unique_ptr<IOperator> child,
+                               std::unique_ptr<IFilterExpression> filter)
+    : child_(std::move(child)), filter_(std::move(filter)) {
+}
+
+Batch* HavingOperator::next() {
+    Batch* batch = child_->next();
+    if (batch == nullptr) {
+        return nullptr;
+    }
+    if (batch->row_count_ == 0) {
+        return nullptr;
+    }
+
+    std::vector<uint8_t> mask(batch->row_count_, 1);
+    filter_->evaluate(*batch, mask);
+    apply_mask(batch, mask);
+
+    return batch;
+}
+
+void HavingOperator::apply_mask(Batch* batch, std::vector<uint8_t>& mask) {
+    batch->active_rows_.clear();
+    for (size_t i = 0; i < mask.size(); ++i) {
+        if (mask[i] == 1) {
+            batch->active_rows_.push_back(i);
+        }
+    }
+}
+
+const Schema& HavingOperator::get_schema() const {
     return child_->get_schema();
 }
 

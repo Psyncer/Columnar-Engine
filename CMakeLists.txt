@@ -8,8 +8,8 @@ project(Columnar-Engine LANGUAGES CXX)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    add_compile_options(-Wall -Wextra -Wpedantic -Werror -stdlib=libc++ -Wconversion -Wshadow -Wzero-as-null-pointer-constant -Wnull-dereference)
-    add_link_options(-stdlib=libc++)
+    add_compile_options(-Wall -Wextra -Wpedantic -Werror -stdlib=libstdc++ -Wconversion -Wshadow -Wzero-as-null-pointer-constant -Wnull-dereference)
+    add_link_options(-stdlib=libstdc++)
 endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")

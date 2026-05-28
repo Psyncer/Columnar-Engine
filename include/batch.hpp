@@ -18,11 +18,11 @@ struct Batch {
 
     Batch();
 
-    Batch(const Schema& schema, const std::vector<std::string>& names);
+    Batch(const Schema& schema, const std::vector<std::string>& columns_needed);
 
-    Batch(const Batch&) = delete;
+    Batch(const Batch& other);
 
-    Batch& operator=(const Batch&) = delete;
+    Batch& operator=(const Batch& other) = delete;
 
     Batch(Batch&& other) noexcept;
 

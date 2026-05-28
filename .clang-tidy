@@ -28,7 +28,8 @@ Checks: >
   -cppcoreguidelines-non-private-member-variables-in-classes,
   -cppcoreguidelines-no-malloc,
   -cppcoreguidelines-pro-type-vararg,
-  -bugprone-not-null-terminated-result
+  -bugprone-not-null-terminated-result,
+  -readability-static-accessed-through-instance
 
 CheckOptions:
   - key: readability-identifier-naming.ClassMemberSuffix
