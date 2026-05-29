@@ -1,5 +1,7 @@
 #pragma once
 
+#include <absl/container/flat_hash_map.h>
+#include <absl/hash/hash.h>
 #include <memory>
 
 #include "aggregate.hpp"
@@ -37,7 +39,7 @@ class GlobalAggOperator : public IOperator {
 private:
     std::unique_ptr<IOperator> child_;
     std::vector<AggSpec> specs_;
-    std::vector<AggState> states_;
+    std::vector<AggStatePtr> states_;
     Batch result_batch_;
     Schema result_schema_;
     bool done_ = false;
@@ -67,49 +69,62 @@ private:
     static void apply_mask(Batch* batch, std::vector<uint8_t>& mask);
 };
 
-class GroupByOperator : public IOperator {
+class GroupByAggOperator : public IOperator {
     struct GroupKey {
-        std::vector<int64_t> ints;
-        std::vector<std::string> strs;
+        std::vector<int64_t> values;
 
         bool operator==(const GroupKey& other) const {
-            return ints == other.ints && strs == other.strs;
+            return values == other.values;
         }
     };
 
     struct KeyHash {
         size_t operator()(const GroupKey& key) const {
             size_t seed = 0;
-
-            for (int64_t v : key.ints) {
-                hash_combine(seed, std::hash<int64_t>{}(v));
-            }
-
-            for (const auto& s : key.strs) {
-                hash_combine(seed, std::hash<std::string>{}(s));
+            for (int64_t v : key.values) {
+                seed ^=
+                    absl::Hash<int64_t>{}(v) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
             }
 
             return seed;
         }
-
-        static void hash_combine(size_t& seed, size_t v) {
-            seed ^= v + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
-        }
     };
+
+    int64_t encode(const std::string& s) {
+        auto it = str_to_id_.find(s);
+        if (it != str_to_id_.end()) {
+            return it->second;
+        }
+
+        int64_t id = static_cast<int64_t>(id_to_str_.size());
+        id_to_str_.push_back(s);
+        str_to_id_.emplace(id_to_str_.back(), id);
+
+        return id;
+    }
+
+    const std::string& decode(int64_t id) const {
+        return id_to_str_[static_cast<size_t>(id)];
+    }
 
 private:
     std::unique_ptr<IOperator> child_;
     std::vector<std::unique_ptr<IValueExpression>> group_exprs_;
     std::vector<AggSpec> specs_;
-    std::unordered_map<GroupKey, std::vector<AggState>, KeyHash> groups_;
+
+    absl::flat_hash_map<GroupKey, std::vector<AggStatePtr>, KeyHash> groups_;
+
+    absl::flat_hash_map<std::string, int64_t> str_to_id_;
+    std::vector<std::string> id_to_str_;
+
     Batch result_batch_;
     Schema result_schema_;
     bool done_ = false;
 
 public:
-    GroupByOperator(std::unique_ptr<IOperator>&& child,
-                    std::vector<std::unique_ptr<IValueExpression>> group_exprs,
-                    std::vector<AggSpec> specs);
+    GroupByAggOperator(std::unique_ptr<IOperator>&& child,
+                       std::vector<std::unique_ptr<IValueExpression>> group_exprs,
+                       std::vector<AggSpec> specs);
 
     Batch* next() override;
 

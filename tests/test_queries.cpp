@@ -39,8 +39,8 @@ struct QueryBuilder {
     static std::unique_ptr<IOperator>
     group_by(std::unique_ptr<IOperator>&& child,
              std::vector<std::unique_ptr<IValueExpression>>&& keys, std::vector<AggSpec> aggs) {
-        return std::make_unique<GroupByOperator>(std::move(child), std::move(keys),
-                                                 std::move(aggs));
+        return std::make_unique<GroupByAggOperator>(std::move(child), std::move(keys),
+                                                    std::move(aggs));
     }
 
     static std::unique_ptr<IOperator> order_by(std::unique_ptr<IOperator>&& child,
@@ -138,34 +138,39 @@ auto not_like(std::unique_ptr<ColumnRef>&& l, const std::string& str) {
     return std::make_unique<NotLike>(std::move(l), str);
 }
 
-auto count(const std::string& col, std::string alias = "") {
+auto count(const std::string& col, std::string alias = "",
+           std::unique_ptr<IValueExpression>&& expr = nullptr) {
     alias = (alias == "") ? col : alias;
-    return AggSpec(AggType::Count, col, std::make_unique<ColumnRef>(col), alias);
+    return AggSpec(AggType::Count, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
 }
 
-auto count_distinct(const std::string& col, std::string alias = "") {
+auto count_distinct(const std::string& col, std::string alias = "",
+                    std::unique_ptr<IValueExpression>&& expr = nullptr) {
     alias = (alias == "") ? col : alias;
-    return AggSpec(AggType::CountDistinct, col, std::make_unique<ColumnRef>(col), alias);
+    return AggSpec(AggType::CountDistinct, col, std::make_unique<ColumnRef>(col, std::move(expr)),
+                   alias);
 }
 
-auto sum(const std::string& col, std::unique_ptr<IValueExpression>&& expr = nullptr,
-         std::string alias = "") {
+auto sum(const std::string& col, std::string alias = "",
+         std::unique_ptr<IValueExpression>&& expr = nullptr) {
     alias = (alias == "") ? col : alias;
     return AggSpec(AggType::Sum, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
 }
 
-auto min(const std::string& col, std::string alias = "") {
+auto min(const std::string& col, std::string alias = "",
+         std::unique_ptr<IValueExpression>&& expr = nullptr) {
     alias = (alias == "") ? col : alias;
-    return AggSpec(AggType::Min, col, std::make_unique<ColumnRef>(col), alias);
+    return AggSpec(AggType::Min, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
 }
 
-auto max(const std::string& col, std::string alias = "") {
+auto max(const std::string& col, std::string alias = "",
+         std::unique_ptr<IValueExpression>&& expr = nullptr) {
     alias = (alias == "") ? col : alias;
-    return AggSpec(AggType::Max, col, std::make_unique<ColumnRef>(col), alias);
+    return AggSpec(AggType::Max, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
 }
 
-auto avg(const std::string& col, std::unique_ptr<IValueExpression>&& expr = nullptr,
-         std::string alias = "") {
+auto avg(const std::string& col, std::string alias = "",
+         std::unique_ptr<IValueExpression>&& expr = nullptr) {
     alias = (alias == "") ? col : alias;
     return AggSpec(AggType::Avg, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
 }
@@ -283,9 +288,9 @@ void query00() {
     // FROM hits;
     // ==============
 
-    std::cout << "Query 0:" << std::endl;
+    std::cout << "Query 0:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.global_agg(q.scan({""}), make_aggs(count("*")));
 
@@ -295,9 +300,9 @@ void query00() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query01() {
@@ -307,9 +312,9 @@ void query01() {
     // WHERE AdvEngineID <> 0;
     // ==============
 
-    std::cout << "Query 1:" << std::endl;
+    std::cout << "Query 1:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan =
         q.global_agg(q.filter(q.scan({"AdvEngineID"}), not_equal(col("AdvEngineID"), lit(0))),
@@ -321,9 +326,9 @@ void query01() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query02() {
@@ -334,9 +339,9 @@ void query02() {
     // FROM hits;
     // ==============
 
-    std::cout << "Query 2:" << std::endl;
+    std::cout << "Query 2:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.global_agg(q.scan({"AdvEngineID", "ResolutionWidth"}),
                              make_aggs(sum("AdvEngineID"), count("*"), avg("ResolutionWidth")));
@@ -347,9 +352,9 @@ void query02() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query03() {
@@ -358,9 +363,9 @@ void query03() {
     // FROM hits;
     // ==============
 
-    std::cout << "Query 3:" << std::endl;
+    std::cout << "Query 3:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.global_agg(q.scan({"UserID"}), make_aggs(avg("UserID")));
 
@@ -370,9 +375,9 @@ void query03() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query04() {
@@ -381,9 +386,9 @@ void query04() {
     // FROM hits;
     // ==============
 
-    std::cout << "Query 4:" << std::endl;
+    std::cout << "Query 4:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.global_agg(q.scan({"UserID"}), make_aggs(count_distinct("UserID")));
 
@@ -393,9 +398,9 @@ void query04() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query05() {
@@ -404,9 +409,9 @@ void query05() {
     // FROM hits;
     // ==============
 
-    std::cout << "Query 5:" << std::endl;
+    std::cout << "Query 5:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.global_agg(q.scan({"SearchPhrase"}), make_aggs(count_distinct("SearchPhrase")));
 
@@ -416,9 +421,9 @@ void query05() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query06() {
@@ -428,9 +433,9 @@ void query06() {
     // FROM hits;
     // ==============
 
-    std::cout << "Query 6:" << std::endl;
+    std::cout << "Query 6:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.global_agg(q.scan({"EventDate"}), make_aggs(min("EventDate"), max("EventDate")));
 
@@ -440,9 +445,9 @@ void query06() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query07() {
@@ -455,9 +460,9 @@ void query07() {
     // ORDER BY COUNT(*) DESC;
     // ==============
 
-    std::cout << "Query 7:" << std::endl;
+    std::cout << "Query 7:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.order_by(
         q.group_by(q.filter(q.scan({"AdvEngineID"}), not_equal(col("AdvEngineID"), lit(0))),
@@ -470,9 +475,9 @@ void query07() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query08() {
@@ -485,9 +490,9 @@ void query08() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "Query 8:" << std::endl;
+    std::cout << "Query 8:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan =
         q.limit(q.order_by(q.group_by(q.scan({"RegionID", "UserID"}), make_groups(col("RegionID")),
@@ -502,9 +507,9 @@ void query08() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query09() {
@@ -520,9 +525,9 @@ void query09() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "Query 9:" << std::endl;
+    std::cout << "Query 9:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.scan({"RegionID", "AdvEngineID", "ResolutionWidth", "UserID"}),
@@ -539,9 +544,9 @@ void query09() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query10() {
@@ -554,9 +559,9 @@ void query10() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 10:" << std::endl;
+    std::cout << "\nQuery 10:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(q.order_by(q.group_by(q.filter(q.scan({"MobilePhoneModel", "UserID"}),
                                                        not_equal(col("MobilePhoneModel"), lit(""))),
@@ -572,8 +577,9 @@ void query10() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query11() {
@@ -586,9 +592,9 @@ void query11() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 11:" << std::endl;
+    std::cout << "\nQuery 11:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.filter(q.scan({"MobilePhone", "MobilePhoneModel", "UserID"}),
@@ -605,8 +611,9 @@ void query11() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query12() {
@@ -619,9 +626,9 @@ void query12() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 12:" << std::endl;
+    std::cout << "\nQuery 12:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
         q.order_by(
@@ -637,8 +644,9 @@ void query12() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query13() {
@@ -651,9 +659,9 @@ void query13() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 13:" << std::endl;
+    std::cout << "\nQuery 13:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "UserID"}),
                                                        not_equal(col("SearchPhrase"), lit(""))),
@@ -669,8 +677,9 @@ void query13() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query14() {
@@ -683,9 +692,9 @@ void query14() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 14:" << std::endl;
+    std::cout << "\nQuery 14:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan =
         q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchEngineID", "SearchPhrase"}),
@@ -702,8 +711,9 @@ void query14() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query15() {
@@ -715,9 +725,9 @@ void query15() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 15:" << std::endl;
+    std::cout << "\nQuery 15:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(q.order_by(q.group_by(q.scan({"UserID"}), make_groups(col("UserID")),
                                               make_aggs(count("*", "c"))),
@@ -731,8 +741,9 @@ void query15() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query16() {
@@ -744,9 +755,9 @@ void query16() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 16:" << std::endl;
+    std::cout << "\nQuery 16:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(q.order_by(q.group_by(q.scan({"UserID", "SearchPhrase"}),
                                               make_groups(col("UserID"), col("SearchPhrase")),
@@ -761,8 +772,9 @@ void query16() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query17() {
@@ -773,9 +785,9 @@ void query17() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 17:" << std::endl;
+    std::cout << "\nQuery 17:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(q.group_by(q.scan({"UserID", "SearchPhrase"}),
                                    make_groups(col("UserID"), col("SearchPhrase")),
@@ -788,8 +800,9 @@ void query17() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query18() {
@@ -801,9 +814,9 @@ void query18() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 18:" << std::endl;
+    std::cout << "\nQuery 18:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.scan({"UserID", "EventTime", "SearchPhrase"}),
@@ -822,8 +835,9 @@ void query18() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query19() {
@@ -833,9 +847,9 @@ void query19() {
     // WHERE UserID = 435090932899640449;
     // ==============
 
-    std::cout << "\nQuery 19:" << std::endl;
+    std::cout << "\nQuery 19:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.filter(q.scan({"UserID"}), equal(col("UserID"), lit(435090932899640449LL)));
 
@@ -845,8 +859,9 @@ void query19() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query20() {
@@ -856,9 +871,9 @@ void query20() {
     // WHERE URL LIKE '%google%';
     // ==============
 
-    std::cout << "\nQuery 20:" << std::endl;
+    std::cout << "\nQuery 20:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan =
         q.global_agg(q.filter(q.scan({"URL"}), std::make_unique<Like>(col("URL"), "%google%")),
@@ -870,8 +885,9 @@ void query20() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "\nTime: " << ms << " ms" << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query21() {
@@ -884,9 +900,9 @@ void query21() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 21:" << std::endl;
+    std::cout << "\nQuery 21:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan =
         q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "URL"}),
@@ -904,9 +920,9 @@ void query21() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query22() {
@@ -919,9 +935,9 @@ void query22() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 22:" << std::endl;
+    std::cout << "\nQuery 22:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "URL", "Title", "UserID"}),
@@ -939,11 +955,11 @@ void query22() {
     while (Batch* output_batch = plan->next()) {
         CsvWriter::write_batch(*output_batch);
     }
-
     auto end = std::chrono::steady_clock::now();
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query23() {
@@ -955,9 +971,9 @@ void query23() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 23:" << std::endl;
+    std::cout << "\nQuery 23:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(q.order_by(q.filter(q.scan({"*"}), like(col("URL"), "%google%")),
                                    order_specs(OrderByOperator::OrderSpec{
@@ -968,11 +984,11 @@ void query23() {
     while (Batch* output_batch = plan->next()) {
         CsvWriter::write_batch(*output_batch);
     }
-
     auto end = std::chrono::steady_clock::now();
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query24() {
@@ -984,9 +1000,9 @@ void query24() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 24:" << std::endl;
+    std::cout << "\nQuery 24:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(q.order_by(q.filter(q.scan({"SearchPhrase", "EventTime"}),
                                             not_equal(col("SearchPhrase"), lit(""))),
@@ -998,11 +1014,11 @@ void query24() {
     while (Batch* output_batch = plan->next()) {
         CsvWriter::write_batch(*output_batch);
     }
-
     auto end = std::chrono::steady_clock::now();
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query25() {
@@ -1014,9 +1030,9 @@ void query25() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 25:" << std::endl;
+    std::cout << "\nQuery 25:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
         q.order_by(q.filter(q.scan({"SearchPhrase"}), not_equal(col("SearchPhrase"), lit(""))),
@@ -1028,11 +1044,11 @@ void query25() {
     while (Batch* output_batch = plan->next()) {
         CsvWriter::write_batch(*output_batch);
     }
-
     auto end = std::chrono::steady_clock::now();
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query26() {
@@ -1044,9 +1060,9 @@ void query26() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 26:" << std::endl;
+    std::cout << "\nQuery 26:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
         q.order_by(q.filter(q.scan({"SearchPhrase", "EventTime"}),
@@ -1061,11 +1077,11 @@ void query26() {
     while (Batch* output_batch = plan->next()) {
         CsvWriter::write_batch(*output_batch);
     }
-
     auto end = std::chrono::steady_clock::now();
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query27() {
@@ -1079,16 +1095,16 @@ void query27() {
     // LIMIT 25;
     // ==============
 
-    std::cout << "\nQuery 27:" << std::endl;
+    std::cout << "\nQuery 27:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
         q.order_by(
             q.having(
                 q.group_by(q.filter(q.scan({"CounterID", "URL"}), not_equal(col("URL"), lit(""))),
                            make_groups(col("CounterID")),
-                           make_aggs(avg("URL", str_len(col("URL")), "l"), count("*", "c"))),
+                           make_aggs(avg("URL", "l", str_len(col("URL"))), count("*", "c"))),
                 greater(col("c"), lit(100000))),
             order_specs(
                 OrderByOperator::OrderSpec{col("l"), OrderByOperator::OrderDirection::Desc})),
@@ -1098,11 +1114,11 @@ void query27() {
     while (Batch* output_batch = plan->next()) {
         CsvWriter::write_batch(*output_batch);
     }
-
     auto end = std::chrono::steady_clock::now();
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query28() {
@@ -1119,9 +1135,9 @@ void query28() {
     // LIMIT 25;
     // ==============
 
-    std::cout << "\nQuery 28:" << std::endl;
+    std::cout << "\nQuery 28:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto k_expr = regexp_replace(col("Referer"), "^https?://(?:www\\.)?([^/]+)/.*$", "\\1");
 
@@ -1129,7 +1145,7 @@ void query28() {
         q.order_by(
             q.having(q.group_by(q.filter(q.scan({"Referer"}), not_equal(col("Referer"), lit(""))),
                                 make_groups(col("k", std::move(k_expr))),
-                                make_aggs(avg("Referer", str_len(col("Referer")), "l"),
+                                make_aggs(avg("Referer", "l", str_len(col("Referer"))),
                                           count("*", "c"), min("Referer"))),
                      greater(col("c"), lit(100000))),
             order_specs(
@@ -1140,11 +1156,11 @@ void query28() {
     while (Batch* output_batch = plan->next()) {
         CsvWriter::write_batch(*output_batch);
     }
-
     auto end = std::chrono::steady_clock::now();
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query29() {
@@ -1153,113 +1169,114 @@ void query29() {
     // FROM hits;
     // ==============
 
-    std::cout << "\nQuery 29:" << std::endl;
+    std::cout << "\nQuery 29:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto scan = q.scan({"ResolutionWidth"});
 
-    auto plan = q.global_agg(
-        std::move(scan), make_aggs(sum("ResolutionWidth"),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(1))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(2))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(3))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(4))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(5))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(6))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(7))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(8))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(9))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(10))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(11))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(12))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(13))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(14))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(15))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(16))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(17))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(18))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(19))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(20))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(21))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(22))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(23))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(24))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(25))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(26))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(27))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(28))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(29))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(30))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(31))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(32))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(33))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(34))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(35))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(36))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(37))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(38))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(39))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(40))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(41))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(42))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(43))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(44))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(45))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(46))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(47))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(48))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(49))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(50))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(51))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(52))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(53))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(54))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(55))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(56))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(57))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(58))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(59))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(60))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(61))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(62))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(63))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(64))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(65))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(66))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(67))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(68))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(69))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(70))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(71))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(72))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(73))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(74))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(75))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(76))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(77))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(78))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(79))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(80))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(81))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(82))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(83))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(84))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(85))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(86))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(87))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(88))),
-                                   sum("ResolutionWidth", add(col("ResolutionWidth"), lit(89)))));
+    auto plan =
+        q.global_agg(std::move(scan),
+                     make_aggs(sum("ResolutionWidth"),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(1))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(2))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(3))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(4))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(5))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(6))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(7))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(8))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(9))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(10))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(11))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(12))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(13))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(14))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(15))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(16))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(17))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(18))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(19))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(20))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(21))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(22))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(23))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(24))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(25))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(26))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(27))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(28))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(29))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(30))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(31))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(32))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(33))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(34))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(35))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(36))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(37))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(38))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(39))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(40))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(41))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(42))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(43))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(44))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(45))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(46))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(47))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(48))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(49))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(50))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(51))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(52))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(53))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(54))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(55))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(56))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(57))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(58))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(59))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(60))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(61))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(62))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(63))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(64))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(65))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(66))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(67))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(68))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(69))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(70))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(71))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(72))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(73))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(74))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(75))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(76))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(77))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(78))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(79))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(80))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(81))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(82))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(83))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(84))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(85))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(86))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(87))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(88))),
+                               sum("ResolutionWidth", "", add(col("ResolutionWidth"), lit(89)))));
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
         CsvWriter::write_batch(*output_batch);
     }
-
     auto end = std::chrono::steady_clock::now();
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query30() {
@@ -1272,9 +1289,9 @@ void query30() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 30:" << std::endl;
+    std::cout << "\nQuery 30:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.filter(q.scan({"SearchEngineID", "ClientIP", "IsRefresh",
@@ -1290,11 +1307,11 @@ void query30() {
     while (Batch* output_batch = plan->next()) {
         CsvWriter::write_batch(*output_batch);
     }
-
     auto end = std::chrono::steady_clock::now();
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query31() {
@@ -1307,18 +1324,18 @@ void query31() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 31:" << std::endl;
+    std::cout << "\nQuery 31:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
-        q.order_by(
-            q.group_by(q.filter(q.scan({"WatchID", "ClientIP", "IsRefresh", "ResolutionWidth", "SearchPhrase"}),
-                                not_equal(col("SearchPhrase"), lit(""))),
-                       make_groups(col("WatchID"), col("ClientIP")),
-                       make_aggs(count("*", "c"), sum("IsRefresh"), avg("ResolutionWidth"))),
-            order_specs(
-                OrderByOperator::OrderSpec{col("c"), OrderByOperator::OrderDirection::Desc})),
+        q.order_by(q.group_by(q.filter(q.scan({"WatchID", "ClientIP", "IsRefresh",
+                                               "ResolutionWidth", "SearchPhrase"}),
+                                       not_equal(col("SearchPhrase"), lit(""))),
+                              make_groups(col("WatchID"), col("ClientIP")),
+                              make_aggs(count("*", "c"), sum("IsRefresh"), avg("ResolutionWidth"))),
+                   order_specs(OrderByOperator::OrderSpec{col("c"),
+                                                          OrderByOperator::OrderDirection::Desc})),
         10);
 
     auto start = std::chrono::steady_clock::now();
@@ -1327,9 +1344,9 @@ void query31() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query32() {
@@ -1341,9 +1358,9 @@ void query32() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 32:" << std::endl;
+    std::cout << "\nQuery 32:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.scan({"WatchID", "ClientIP", "IsRefresh", "ResolutionWidth"}),
@@ -1359,9 +1376,9 @@ void query32() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query33() {
@@ -1373,9 +1390,9 @@ void query33() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 33:" << std::endl;
+    std::cout << "\nQuery 33:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.scan({"URL"}), make_groups(col("URL")), make_aggs(count("*", "c"))),
@@ -1389,9 +1406,9 @@ void query33() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query34() {
@@ -1403,9 +1420,9 @@ void query34() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 34:" << std::endl;
+    std::cout << "\nQuery 34:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan =
         q.limit(q.order_by(q.group_by(q.scan({"URL"}), make_groups(col("one", lit(1)), col("URL")),
@@ -1420,9 +1437,9 @@ void query34() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query35() {
@@ -1434,9 +1451,9 @@ void query35() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 35:" << std::endl;
+    std::cout << "\nQuery 35:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto plan =
         q.limit(q.order_by(q.group_by(q.scan({"ClientIP"}),
@@ -1455,9 +1472,9 @@ void query35() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query36() {
@@ -1475,9 +1492,9 @@ void query36() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 36:" << std::endl;
+    std::cout << "\nQuery 36:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1501,9 +1518,9 @@ void query36() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query37() {
@@ -1521,9 +1538,9 @@ void query37() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 37:" << std::endl;
+    std::cout << "\nQuery 37:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1547,9 +1564,9 @@ void query37() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query38() {
@@ -1567,9 +1584,9 @@ void query38() {
     // LIMIT 10 OFFSET 1000;
     // ==============
 
-    std::cout << "\nQuery 38:" << std::endl;
+    std::cout << "\nQuery 38:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1593,9 +1610,9 @@ void query38() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query39() {
@@ -1615,9 +1632,9 @@ void query39() {
     // LIMIT 10 OFFSET 1000;
     // ==============
 
-    std::cout << "\nQuery 39:" << std::endl;
+    std::cout << "\nQuery 39:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto src_expr =
         case_when(and_expr(equal(col("SearchEngineID"), lit(0)), equal(col("AdvEngineID"), lit(0))),
@@ -1647,9 +1664,9 @@ void query39() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query40() {
@@ -1667,9 +1684,9 @@ void query40() {
     // LIMIT 10 OFFSET 100;
     // ==============
 
-    std::cout << "\nQuery 40:" << std::endl;
+    std::cout << "\nQuery 40:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1695,9 +1712,9 @@ void query40() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query41() {
@@ -1715,9 +1732,9 @@ void query41() {
     // LIMIT 10 OFFSET 10000;
     // ==============
 
-    std::cout << "\nQuery 41:" << std::endl;
+    std::cout << "\nQuery 41:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1744,9 +1761,9 @@ void query41() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void query42() {
@@ -1763,9 +1780,9 @@ void query42() {
     // LIMIT 10 OFFSET 1000;
     // ==============
 
-    std::cout << "\nQuery 42:" << std::endl;
+    std::cout << "\nQuery 42:\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/output.columnar");
+    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1793,9 +1810,9 @@ void query42() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "\nTime: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms"
-              << std::endl;
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms\n\n";
 }
 
 void run_query(int n) {
@@ -1944,7 +1961,7 @@ int main(int argc, char* argv[]) {
 
     std::string csv_schema = argv[1];
     std::string csv_data = argv[2];
-    std::string output_file = "/home/mike/Columnar-Engine/tests/output.columnar";
+    std::string output_file = "/home/mike/Columnar-Engine/tests/big.columnar";
 
     // std::cout << "\nConverting CSV to columnar file..." << std::endl;
 
@@ -1956,13 +1973,36 @@ int main(int argc, char* argv[]) {
     //     std::abort();
     // }
 
-    std::vector<int> num_query(43);
+    std::vector<int> num_query(18);
     std::iota(num_query.begin(), num_query.end(), 0);
     for (auto n : num_query) {
-        run_query(n);
+        try {
+            run_query(n);
+        } catch (const std::exception& e) {
+            std::cerr << "Query " << n << " failed: " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "Query " << n << " failed with unknown exception" << std::endl;
+        }
     }
 
-    // SLOW QUERIES: 20, 21, 22, 23, 28, 32.
+    // run_query(18);
+
+    // ==================
+    // SMALL HITS
+    // ==================
+    // SLIGHTLY SLOW QUERIES: 18, 22, 23, 28, 29, 32, 39
+    // SUSPICIOUS QUERIES:
+    //                      17 (might be one of the possible answers to the query),
+    //                      31 (might be one of the possible answers to the query),
+    //
+
+    // ==================
+    // FULL HITS
+    // ==================
+    // SLIGHTLY SLOW QUERIES: 18, 
+    // SUSPICIOUS QUERIES:
+    //                      
+    //
 
     return 0;
 }

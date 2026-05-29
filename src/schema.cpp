@@ -34,7 +34,6 @@ const std::vector<std::string>& Schema::get_column_names() const {
     return names_;
 }
 
-
 size_t Schema::get_column_index(const std::string& name) const {
     if (name == "*" && !names_to_indices_.contains(name)) {
         return 0;
@@ -42,6 +41,10 @@ size_t Schema::get_column_index(const std::string& name) const {
 
     ASS(names_to_indices_.contains(name), "no such name in schema");
     return names_to_indices_.at(name);
+}
+
+bool Schema::contains(const std::string& name) const {
+    return names_to_indices_.contains(name);
 }
 
 void Schema::add_column(const std::string& name, Type type) {

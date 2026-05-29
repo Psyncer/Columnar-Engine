@@ -12,6 +12,10 @@
 
 namespace columnar {
 
+class IAggState;
+
+using AggStatePtr = std::unique_ptr<IAggState>;
+
 enum class AggType {
     Count,
     CountDistinct,
@@ -20,6 +24,31 @@ enum class AggType {
     Max,
     Avg,
 };
+
+namespace delete_later {
+
+inline const char* agg_to_str(AggType type) {
+    switch (type) {
+    case AggType::Count:
+        return "COUNT";
+    case AggType::CountDistinct:
+        return "COUNT DISTINCT";
+    case AggType::Sum:
+        return "SUM";
+    case AggType::Min:
+        return "MIN";
+    case AggType::Max:
+        return "MAX";
+    case AggType::Avg:
+        return "AVG";
+    }
+}
+
+inline std::ostream& operator<<(std::ostream& os, Type type) {
+    return os << to_string(type);
+}
+
+}  // namespace delete_later
 
 struct AggSpec {
     AggType agg_type;
@@ -33,187 +62,342 @@ struct AggSpec {
     }
 };
 
-struct AggState {
+class IAggState {
+public:
+    virtual void update([[maybe_unused]] int64_t val) {
+    }
+
+    virtual void update([[maybe_unused]] const std::string& str) {
+    }
+
+    virtual void finalize(Column& column) const = 0;
+
+    virtual ~IAggState() = default;
+};
+
+class CountState : public IAggState {
+private:
     int64_t count = 0;
-    __int128 sum = 0;
-    int64_t min = std::numeric_limits<int64_t>::max();
-    int64_t max = std::numeric_limits<int64_t>::min();
-    std::pair<__int128, int64_t> avg;
+
+public:
+    void update([[maybe_unused]] int64_t val) override {
+        count++;
+    }
+
+    void finalize(Column& column) const override {
+        switch (column.type()) {
+        case Type::Int16:
+            column.push_value<int16_t>(count);
+            break;
+        case Type::Int32:
+            column.push_value<int32_t>(count);
+            break;
+        case Type::Int64:
+            column.push_value<int64_t>(count);
+            break;
+        case Type::String:
+            column.push_string(std::to_string(count));
+            break;
+        case Type::Date:
+            column.push_value<int32_t>(count);
+            break;
+        case Type::Timestamp:
+            column.push_value<int64_t>(count);
+            break;
+        }
+    }
+};
+
+class CountDistinctState : public IAggState {
+private:
     std::unordered_set<int64_t> distinct;
 
-    std::string str_min = std::string(16, char(0xFF));
-    std::string str_max;
-    std::unordered_set<std::string> str_distinct;
+public:
+    void update(int64_t val) override {
+        distinct.insert(val);
+    }
 
-    void finalize(Column& column, AggType type) const {
-        switch (type) {
-        case AggType::Count:
-            column.push(count);
+    void finalize(Column& column) const override {
+        switch (column.type()) {
+        case Type::Int16:
+            column.push_value<int16_t>(distinct.size());
             break;
-        case AggType::CountDistinct:
-            if (column.type() == Type::String) {
-                column.push_string(std::to_string(str_distinct.size()));
-                break;
-            }
-            column.push(distinct.size());
+        case Type::Int32:
+            column.push_value<int32_t>(distinct.size());
             break;
-        case AggType::Sum:
-            column.push(static_cast<int64_t>(sum));
+        case Type::Int64:
+            column.push_value<int64_t>(distinct.size());
             break;
-        case AggType::Min:
-            if (column.type() == Type::String) {
-                column.push_string(str_min);
-                break;
-            }
-            column.push(min);
+        case Type::Date:
+            column.push_value<int32_t>(distinct.size());
             break;
-        case AggType::Max:
-            if (column.type() == Type::String) {
-                column.push_string(str_max);
-                break;
-            }
-            column.push(max);
+        case Type::Timestamp:
+            column.push_value<int64_t>(distinct.size());
             break;
-        case AggType::Avg:
-            column.push(static_cast<int64_t>(avg.first / avg.second));
+        default:
+            std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__ << "\n  in "
+                      << __func__ << std::endl;
+            std::abort();
             break;
         }
     }
 };
 
-template <template <typename> class AggFn>
-void dispatch_agg(const Batch& batch, AggState& state,
-                  const std::unique_ptr<IValueExpression>& expr) {
-    const Column* column = expr->evaluate(batch);
-    switch (column->type()) {
-    case Type::Int16:
-        AggFn<int16_t>{}(*column, state, batch.active_rows_);
-        break;
-    case Type::Int32:
-        AggFn<int32_t>{}(*column, state, batch.active_rows_);
-        break;
-    case Type::Int64:
-        AggFn<int64_t>{}(*column, state, batch.active_rows_);
-        break;
-    case Type::String:
-        AggFn<char>{}(*column, state, batch.active_rows_);
-        break;
-    case Type::Date:
-        AggFn<int32_t>{}(*column, state, batch.active_rows_);
-        break;
-    case Type::Timestamp:
-        AggFn<int64_t>{}(*column, state, batch.active_rows_);
-        break;
+class StrCountDistinctState : public IAggState {
+private:
+    std::unordered_set<std::string> distinct;
+
+public:
+    void update(const std::string& str) override {
+        distinct.insert(str);
+    }
+
+    void finalize(Column& column) const override {
+        switch (column.type()) {
+        case Type::Int16:
+            column.push_value<int16_t>(distinct.size());
+            break;
+        case Type::Int32:
+            column.push_value<int32_t>(distinct.size());
+            break;
+        case Type::Int64:
+            column.push_value<int64_t>(distinct.size());
+            break;
+        case Type::Date:
+            column.push_value<int32_t>(distinct.size());
+            break;
+        case Type::Timestamp:
+            column.push_value<int64_t>(distinct.size());
+            break;
+        default:
+            std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__ << "\n  in "
+                      << __func__ << std::endl;
+            std::abort();
+            break;
+        }
+    }
+};
+
+class SumState : public IAggState {
+private:
+    __int128_t sum = 0;
+
+public:
+    void update(int64_t val) override {
+        sum += val;
+    }
+
+    void finalize(Column& column) const override {
+        switch (column.type()) {
+        case Type::Int16:
+            column.push_value<int16_t>(sum);
+            break;
+        case Type::Int32:
+            column.push_value<int32_t>(sum);
+            break;
+        case Type::Int64:
+            column.push_value<int64_t>(sum);
+            break;
+        default:
+            std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__ << "\n  in "
+                      << __func__ << std::endl;
+            std::abort();
+            break;
+        }
+    }
+};
+
+class MinState : public IAggState {
+private:
+    int64_t min = std::numeric_limits<int64_t>::max();
+
+public:
+    void update(int64_t val) override {
+        if (val < min) {
+            min = val;
+        }
+    }
+
+    void finalize(Column& column) const override {
+        switch (column.type()) {
+        case Type::Int16:
+            column.push_value<int16_t>(min);
+            break;
+        case Type::Int32:
+            column.push_value<int32_t>(min);
+            break;
+        case Type::Int64:
+            column.push_value<int64_t>(min);
+            break;
+        case Type::Date:
+            column.push_value<int32_t>(min);
+            break;
+        case Type::Timestamp:
+            column.push_value<int64_t>(min);
+            break;
+        default:
+            std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__ << "\n  in "
+                      << __func__ << std::endl;
+            std::abort();
+            break;
+        }
+    }
+};
+
+class StrMinState : public IAggState {
+private:
+    std::string str_min = std::string(16, char(0xFF));
+
+public:
+    void update(const std::string& str) override {
+        if (str < str_min) {
+            str_min = str;
+        }
+    }
+
+    void finalize(Column& column) const override {
+        switch (column.type()) {
+        case Type::String:
+            column.push_string(str_min);
+            break;
+        default:
+            std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__ << "\n  in "
+                      << __func__ << std::endl;
+            std::abort();
+            break;
+        }
+    }
+};
+
+class MaxState : public IAggState {
+private:
+    int64_t max = std::numeric_limits<int64_t>::min();
+
+public:
+    void update(int64_t val) override {
+        if (val > max) {
+            max = val;
+        }
+    }
+
+    void finalize(Column& column) const override {
+        switch (column.type()) {
+        case Type::Int16:
+            column.push_value<int16_t>(max);
+            break;
+        case Type::Int32:
+            column.push_value<int32_t>(max);
+            break;
+        case Type::Int64:
+            column.push_value<int64_t>(max);
+            break;
+        case Type::Date:
+            column.push_value<int32_t>(max);
+            break;
+        case Type::Timestamp:
+            column.push_value<int64_t>(max);
+            break;
+        default:
+            std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__ << "\n  in "
+                      << __func__ << std::endl;
+            std::abort();
+            break;
+        }
+    }
+};
+
+class StrMaxState : public IAggState {
+private:
+    std::string str_max;
+
+public:
+    void update(const std::string& str) override {
+        if (str > str_max) {
+            str_max = str;
+        }
+    }
+
+    void finalize(Column& column) const override {
+        switch (column.type()) {
+        case Type::String:
+            column.push_string(str_max);
+            break;
+        default:
+            std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__ << "\n  in "
+                      << __func__ << std::endl;
+            std::abort();
+            break;
+        }
+    }
+};
+
+class AvgState : public IAggState {
+private:
+    __int128_t sum = 0;
+    int64_t count = 0;
+
+public:
+    void update(int64_t val) override {
+        sum += val;
+        count++;
+    }
+
+    void finalize(Column& column) const override {
+        switch (column.type()) {
+        case Type::Int16:
+            column.push_value<int16_t>(sum / count);
+            break;
+        case Type::Int32:
+            column.push_value<int32_t>(sum / count);
+            break;
+        case Type::Int64:
+            column.push_value<int64_t>(sum / count);
+            break;
+        case Type::Date:
+            column.push_value<int32_t>(sum / count);
+            break;
+        case Type::Timestamp:
+            column.push_value<int64_t>(sum / count);
+            break;
+        default:
+            std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__ << "\n  in "
+                      << __func__ << std::endl;
+            std::abort();
+            break;
+        }
+    }
+};
+
+inline AggStatePtr make_state(AggType agg_type, Type col_type) {
+    switch (agg_type) {
+    case AggType::Count:
+        return std::make_unique<CountState>();
+    case AggType::Sum:
+        return std::make_unique<SumState>();
+    case AggType::Min:
+        if (col_type == Type::String) {
+            return std::make_unique<StrMinState>();
+        } else {
+            return std::make_unique<MinState>();
+        }
+    case AggType::Max:
+        if (col_type == Type::String) {
+            return std::make_unique<StrMaxState>();
+        } else {
+            return std::make_unique<MaxState>();
+        }
+    case AggType::Avg:
+        return std::make_unique<AvgState>();
+
+    case AggType::CountDistinct:
+        if (col_type == Type::String) {
+            return std::make_unique<StrCountDistinctState>();
+        } else {
+            return std::make_unique<CountDistinctState>();
+        }
+
+        return nullptr;
     }
 }
-
-class AggCount {
-public:
-    void operator()(const std::vector<size_t>& active_rows, AggState& state) {
-        state.count += static_cast<int64_t>(active_rows.size());
-    }
-};
-
-template <typename T>
-class AggCountDistinct {
-public:
-    void operator()(const Column& column, AggState& state, const std::vector<size_t>& active_rows) {
-        const T* data = column.data_as<T>();
-        for (const auto& row : active_rows) {
-            state.distinct.insert(data[row]);
-        }
-    }
-};
-
-template <>
-class AggCountDistinct<char> {
-public:
-    void operator()(const Column& column, AggState& state, const std::vector<size_t>& active_rows) {
-        for (const auto& row : active_rows) {
-            state.str_distinct.insert(column.get_string(row));
-        }
-    }
-};
-
-template <typename T>
-class AggSum {
-public:
-    void operator()(const Column& column, AggState& state, const std::vector<size_t>& active_rows) {
-        const T* data = column.data_as<T>();
-        for (const auto& row : active_rows) {
-            state.sum += data[row];
-        }
-    }
-};
-
-template <typename T>
-class AggAvg {
-public:
-    void operator()(const Column& column, AggState& state, const std::vector<size_t>& active_rows) {
-        const T* data = column.data_as<T>();
-        for (const auto& row : active_rows) {
-            state.avg.first += data[row];
-            state.avg.second++;
-        }
-    }
-};
-
-template <typename T>
-class AggMin {
-public:
-    void operator()(const Column& column, AggState& state, const std::vector<size_t>& active_rows) {
-        const T* data = column.data_as<T>();
-        int64_t cur_min = state.min;
-        for (const auto& row : active_rows) {
-            if (data[row] < cur_min) {
-                cur_min = data[row];
-            }
-        }
-        state.min = cur_min;
-    }
-};
-
-template <>
-class AggMin<char> {
-public:
-    void operator()(const Column& column, AggState& state, const std::vector<size_t>& active_rows) {
-        std::string cur_min = state.str_min;
-        for (const auto& row : active_rows) {
-            if (column.get_string(row) < cur_min) {
-                cur_min = column.get_string(row);
-            }
-        }
-        state.str_min = cur_min;
-    }
-};
-
-template <typename T>
-class AggMax {
-public:
-    void operator()(const Column& column, AggState& state, const std::vector<size_t>& active_rows) {
-        const T* data = column.data_as<T>();
-        int64_t cur_max = state.max;
-        for (const auto& row : active_rows) {
-            if (data[row] > cur_max) {
-                cur_max = data[row];
-            }
-        }
-        state.max = cur_max;
-    }
-};
-
-template <>
-class AggMax<char> {
-public:
-    void operator()(const Column& column, AggState& state, const std::vector<size_t>& active_rows) {
-        std::string cur_max = state.str_max;
-        for (const auto& row : active_rows) {
-            if (column.get_string(row) > cur_max) {
-                cur_max = column.get_string(row);
-            }
-        }
-        state.str_min = cur_max;
-    }
-};
 
 }  // namespace columnar

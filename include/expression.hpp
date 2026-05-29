@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <re2/re2.h>
 #include <variant>
 
 #include "batch.hpp"
@@ -136,8 +137,8 @@ public:
 class RegexpReplace : public IValueExpression {
 private:
     std::unique_ptr<IValueExpression> target_;
-    std::string pattern_;
     std::string replacement_;
+    re2::RE2 pattern_;
     std::string output_name_;
     Column column_;
 
@@ -289,23 +290,27 @@ public:
 class Like : public IFilterExpression {
 private:
     std::unique_ptr<IValueExpression> column_;
-    std::string pattern_;
+    re2::RE2 pattern_;
 
 public:
     Like(std::unique_ptr<IValueExpression>&& column, const std::string& str);
 
     void evaluate(const Batch& batch, std::vector<uint8_t>& mask) override;
+
+    static std::string str_to_pattern(const std::string& str);
 };
 
 class NotLike : public IFilterExpression {
 private:
     std::unique_ptr<IValueExpression> column_;
-    std::string pattern_;
+    re2::RE2 pattern_;
 
 public:
     NotLike(std::unique_ptr<IValueExpression>&& column, const std::string& str);
 
     void evaluate(const Batch& batch, std::vector<uint8_t>& mask) override;
+
+    static std::string str_to_pattern(const std::string& str);
 };
 
 class In : public IFilterExpression {

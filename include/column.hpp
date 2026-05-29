@@ -210,40 +210,14 @@ public:
         return static_cast<const T*>(data_);
     }
 
-    template <typename T>
-    void push(T value) {
-        switch (type_) {
-        case Type::Int16:
-            push_value<int16_t>(static_cast<int16_t>(value));
-            break;
-        case Type::Int32:
-            push_value<int32_t>(static_cast<int32_t>(value));
-            break;
-        case Type::Int64:
-            push_value<int64_t>(static_cast<int64_t>(value));
-            break;
-        case Type::Date:
-            push_value<int32_t>(static_cast<int32_t>(value));
-            break;
-        case Type::Timestamp:
-            push_value<int64_t>(static_cast<int64_t>(value));
-            break;
-        default:
-            std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__
-                      << "\n  in " << __func__ << std::endl;
-            std::abort();
-            break;
-        }
-    }
-
-    template <typename T>
-    void push_value(T value) {
+    template <typename T, typename Integral>
+    void push_value(Integral value) {
         ASS(type_matches<T>(type_), "wrong type");
         if (head_ + 1 >= capacity_) {
             reallocate<T>();
         }
 
-        static_cast<T*>(data_)[head_] = value;
+        static_cast<T*>(data_)[head_] = static_cast<T>(value);
         head_++;
     }
 

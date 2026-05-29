@@ -35,6 +35,8 @@ public:
 
     size_t get_column_index(const std::string& name) const;
 
+    bool contains(const std::string& name) const;
+
     void add_column(const std::string& name, Type type);  // throws
 };
 

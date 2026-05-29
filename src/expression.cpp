@@ -19,10 +19,16 @@ const Column* ColumnRef::evaluate(const Batch& batch) {
     if (expr_ != nullptr) {
         const Column* column = expr_->evaluate(batch);
         column_ = Column(*column);
-    } else {
-        size_t idx = batch.schema_.get_column_index(name_);
-        column_ = Column(batch.get_column_by_idx(idx));
+        return &column_;
     }
+
+    if (!batch.schema_.contains(name_) && name_ == "*") {
+        column_ = Column(Type::Int64, 0);
+        return &column_;
+    }
+
+    size_t idx = batch.schema_.get_column_index(name_);
+    column_ = Column(batch.get_column_by_idx(idx));
 
     return &column_;
 }
@@ -261,7 +267,7 @@ Type DateTrunc::output_type() const {
 
 RegexpReplace::RegexpReplace(std::unique_ptr<IValueExpression>&& target, const std::string& pattern,
                              const std::string& replacement)
-    : target_(std::move(target)), pattern_(pattern), replacement_(replacement) {
+    : target_(std::move(target)), replacement_(replacement), pattern_(pattern) {
 }
 
 const Column* RegexpReplace::evaluate(const Batch& batch) {
@@ -269,9 +275,10 @@ const Column* RegexpReplace::evaluate(const Batch& batch) {
     // ASS string column
 
     Column replaced(Type::String, column->index());
+    std::string str;
 
     for (size_t i = 0; i < column->size(); ++i) {
-        std::string str = column->get_string(i);
+        str = column->get_string(i);
         RE2::GlobalReplace(&str, pattern_, replacement_);
         replaced.push_string(str);
     }
@@ -456,56 +463,21 @@ void And::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
 }
 
 Like::Like(std::unique_ptr<IValueExpression>&& column, const std::string& str)
-    : column_(std::move(column)) {
-    std::string pattern;
-
-    for (const char& c : str) {
-        switch (c) {
-        case '%':
-            pattern += ".*";
-            break;
-        case '_':
-            pattern += ".";
-            break;
-        case '.':
-        case '^':
-        case '$':
-        case '|':
-        case '(':
-        case ')':
-        case '[':
-        case ']':
-        case '*':
-        case '+':
-        case '?':
-        case '{':
-        case '}':
-        case '\\':
-            pattern += "\\";
-            pattern += c;
-            break;
-        default:
-            pattern += c;
-            break;
-        }
-    }
-
-    pattern_ = pattern;
+    : column_(std::move(column)), pattern_(str_to_pattern(str)) {
 }
 
 void Like::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
     const Column* column = column_->evaluate(batch);
     for (size_t i = 0; i < column->size(); ++i) {
-        if (!RE2::FullMatch(column->get_string(i), pattern_)) {
-            mask[i] = 0;
+        if (mask[i] == 0) {
+            continue;
         }
+        mask[i] &= static_cast<int>(RE2::FullMatch(column->get_string(i), pattern_));
     }
 }
 
-NotLike::NotLike(std::unique_ptr<IValueExpression>&& column, const std::string& str)
-    : column_(std::move(column)) {
+std::string Like::str_to_pattern(const std::string& str) {
     std::string pattern;
-
     for (const char& c : str) {
         switch (c) {
         case '%':
@@ -537,16 +509,57 @@ NotLike::NotLike(std::unique_ptr<IValueExpression>&& column, const std::string& 
         }
     }
 
-    pattern_ = pattern;
+    return pattern;
+}
+
+NotLike::NotLike(std::unique_ptr<IValueExpression>&& column, const std::string& str)
+    : column_(std::move(column)), pattern_(str_to_pattern(str)) {
 }
 
 void NotLike::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
     const Column* column = column_->evaluate(batch);
     for (size_t i = 0; i < column->size(); ++i) {
-        if (RE2::FullMatch(column->get_string(i), pattern_)) {
-            mask[i] = 0;
+        if (mask[i] == 0) {
+            continue;
+        }
+        mask[i] &= static_cast<int>(RE2::FullMatch(column->get_string(i), pattern_));
+    }
+}
+
+std::string NotLike::str_to_pattern(const std::string& str) {
+    std::string pattern;
+    for (const char& c : str) {
+        switch (c) {
+        case '%':
+            pattern += ".*";
+            break;
+        case '_':
+            pattern += ".";
+            break;
+        case '.':
+        case '^':
+        case '$':
+        case '|':
+        case '(':
+        case ')':
+        case '[':
+        case ']':
+        case '*':
+        case '+':
+        case '?':
+        case '{':
+        case '}':
+        case '\\':
+            pattern += "\\";
+            pattern += c;
+            break;
+        default:
+            pattern += c;
+            break;
         }
     }
+
+    return pattern;
 }
 
 In::In(std::unique_ptr<IValueExpression>&& column, const std::vector<int>& set)
