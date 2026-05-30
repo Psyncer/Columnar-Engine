@@ -215,43 +215,6 @@ void convert(const std::string& csv_schema, const std::string& csv_data,
     writer.write_metadata();
 }
 
-// void test_reading(const std::string& reconstructed_schema, const std::string& reconstructed_data,
-//                   const std::string& output_file) {
-
-//     ColumnarReader reader = ColumnarReader::open_output(output_file);
-
-//     const Schema& schema = reader.schema();
-
-//     CsvWriter schema_writer =
-//         CsvWriter::open_csv_to_write(reconstructed_schema, schema);
-
-//     schema_writer.write_schema(reconstructed_schema);
-
-//     CsvWriter data_writer =
-//         CsvWriter::open_csv_to_write(reconstructed_data, schema);
-
-//     ConversionBatch batch(schema);
-
-//     while (true) {
-//         bool has_more = reader.fill_batch(batch);
-
-//         if (batch.get_row_count() > 0) {
-//             data_writer.write_batch(batch);
-//             batch.clear();
-//         }
-
-//         if (!has_more) {
-//             break;
-//         }
-//     }
-
-//     if (batch.get_row_count() > 0) {
-//         data_writer.write_batch(batch);
-//     }
-
-//     batch.clear();
-// }
-
 template <typename... Ts>
 std::vector<AggSpec> make_aggs(Ts&&... ts) {
     std::vector<AggSpec> v;
@@ -1963,19 +1926,22 @@ int main(int argc, char* argv[]) {
     std::string csv_data = argv[2];
     std::string output_file = "/home/mike/Columnar-Engine/tests/big.columnar";
 
-    // std::cout << "\nConverting CSV to columnar file..." << std::endl;
+    std::cout << "\nConverting CSV to columnar file..." << std::endl;
 
-    // try {
-    //     convert(csv_schema, csv_data, output_file);
-    // } catch (...) {
-    //     std::cerr << "Need to log STL exceptions" << "\n  at " << __FILE__ << ":" << __LINE__
-    //               << "\n  in " << __func__ << std::endl;
-    //     std::abort();
-    // }
+    try {
+        convert(csv_schema, csv_data, output_file);
+    } catch (...) {
+        std::cerr << "Need to log STL exceptions" << "\n  at " << __FILE__ << ":" << __LINE__
+                  << "\n  in " << __func__ << std::endl;
+        std::abort();
+    }
 
-    std::vector<int> num_query(18);
+    std::vector<int> num_query(43);
     std::iota(num_query.begin(), num_query.end(), 0);
     for (auto n : num_query) {
+        if (n == 18 || n == 23 || n == 29 || n == 32 || n == 33 || n == 34) {
+            continue;
+        }
         try {
             run_query(n);
         } catch (const std::exception& e) {
@@ -1984,25 +1950,6 @@ int main(int argc, char* argv[]) {
             std::cerr << "Query " << n << " failed with unknown exception" << std::endl;
         }
     }
-
-    // run_query(18);
-
-    // ==================
-    // SMALL HITS
-    // ==================
-    // SLIGHTLY SLOW QUERIES: 18, 22, 23, 28, 29, 32, 39
-    // SUSPICIOUS QUERIES:
-    //                      17 (might be one of the possible answers to the query),
-    //                      31 (might be one of the possible answers to the query),
-    //
-
-    // ==================
-    // FULL HITS
-    // ==================
-    // SLIGHTLY SLOW QUERIES: 18, 
-    // SUSPICIOUS QUERIES:
-    //                      
-    //
 
     return 0;
 }

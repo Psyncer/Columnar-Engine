@@ -97,14 +97,14 @@ class GroupByAggOperator : public IOperator {
         }
 
         int64_t id = static_cast<int64_t>(id_to_str_.size());
-        id_to_str_.push_back(s);
-        str_to_id_.emplace(id_to_str_.back(), id);
+        id_to_str_.push_string(s);
+        str_to_id_.emplace(id_to_str_.get_string(id_to_str_.size() - 1), id);
 
         return id;
     }
 
-    const std::string& decode(int64_t id) const {
-        return id_to_str_[static_cast<size_t>(id)];
+    std::string_view decode(int64_t id) const {
+        return id_to_str_.get_string_view(static_cast<size_t>(id));
     }
 
 private:
@@ -115,7 +115,7 @@ private:
     absl::flat_hash_map<GroupKey, std::vector<AggStatePtr>, KeyHash> groups_;
 
     absl::flat_hash_map<std::string, int64_t> str_to_id_;
-    std::vector<std::string> id_to_str_;
+    Column id_to_str_;
 
     Batch result_batch_;
     Schema result_schema_;

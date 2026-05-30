@@ -20,13 +20,13 @@ private:
     size_t capacity_ = kColumnCapacity;
     size_t head_ = 0;
     Type type_;
-    size_t idx_;
+    ssize_t idx_;
 
 public:
     Column() {
     }
 
-    Column(Type type, size_t idx) : type_(type), idx_(idx) {
+    Column(Type type, ssize_t idx) : type_(type), idx_(idx) {
         switch (type_) {
         case Type::Int16:
             allocate<int16_t>();
@@ -49,7 +49,7 @@ public:
         }
     }
 
-    Column(Type type, size_t idx, int64_t literal) : type_(type), idx_(idx) {
+    Column(Type type, ssize_t idx, int64_t literal) : type_(type), idx_(idx) {
         switch (type_) {
         case Type::Int16: {
             allocate<int16_t>();
@@ -103,7 +103,7 @@ public:
         }
     }
 
-    Column(Type type, size_t idx, std::string str) : type_(type), idx_(idx) {
+    Column(Type type, ssize_t idx, std::string str) : type_(type), idx_(idx) {
         // ASS string type
         allocate_string();
         char* p = static_cast<char*>(data_);
@@ -274,7 +274,7 @@ public:
     }
 
     std::string get_string(size_t idx) const {
-        // ASS(idx < head_, "index out of range");
+        ASS(idx < head_, "index out of range");
 
         std::string str;
         size_t size = static_cast<size_t>(offsets_[idx + 1] - offsets_[idx]);
@@ -282,6 +282,14 @@ public:
         std::memcpy(str.data(), static_cast<char*>(data_) + offsets_[idx], size);
 
         return str;
+    }
+
+    std::string_view get_string_view(size_t idx) const {
+        ASS(idx < head_, "index out of range");
+
+        std::string str;
+        size_t size = static_cast<size_t>(offsets_[idx + 1] - offsets_[idx]);
+        return std::string_view(static_cast<char*>(data_) + offsets_[idx], size);
     }
 
     size_t size() const {
@@ -300,7 +308,7 @@ public:
         return type_;
     }
 
-    size_t index() const {
+    ssize_t index() const {
         return idx_;
     }
 

@@ -23,7 +23,7 @@ const Column* ColumnRef::evaluate(const Batch& batch) {
     }
 
     if (!batch.schema_.contains(name_) && name_ == "*") {
-        column_ = Column(Type::Int64, 0);
+        column_ = Column(Type::Int64, -1);
         return &column_;
     }
 
@@ -43,11 +43,11 @@ Type ColumnRef::output_type() const {
 
 const Column* Literal::evaluate([[maybe_unused]] const Batch& batch) {
     if (std::holds_alternative<std::string>(literal_)) {
-        column_ = Column(Type::String, 0, std::get<std::string>(literal_));
+        column_ = Column(Type::String, -1, std::get<std::string>(literal_));
         return &column_;
     }
 
-    column_ = Column(Type::Int64, 0, std::get<int64_t>(literal_));
+    column_ = Column(Type::Int64, -1, std::get<int64_t>(literal_));
 
     return &column_;
 }
@@ -62,7 +62,7 @@ Add::Add(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpress
 
 const Column* Add::evaluate(const Batch& batch) {
     const Column* left = left_->evaluate(batch);
-    const Column* right = right_->evaluate(batch);  // assuming literal int64_t for now
+    const Column* right = right_->evaluate(batch);  // assuming literal int64_t
 
     // ASS types and sizes
 
@@ -119,7 +119,7 @@ Sub::Sub(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpress
 
 const Column* Sub::evaluate(const Batch& batch) {
     const Column* left = left_->evaluate(batch);
-    const Column* right = right_->evaluate(batch);  // assuming literal int64_t for now
+    const Column* right = right_->evaluate(batch);  // assuming literal int64_t
 
     // ASS types and sizes
 
@@ -213,7 +213,7 @@ const Column* StrLen::evaluate(const Batch& batch) {
     const Column* column = target_->evaluate(batch);
     // ASS string column
 
-    Column extracted(Type::Int32, 0);
+    Column extracted(Type::Int32, -1);
 
     for (size_t i = 0; i < column->size(); ++i) {
         extracted.push_value<int32_t>(static_cast<int32_t>(column->get_string(i).size()));

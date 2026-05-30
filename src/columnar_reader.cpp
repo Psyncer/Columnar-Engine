@@ -146,7 +146,7 @@ void ColumnarReader::fill_batch(Batch& batch) {
 
     for (size_t i = 0; i < active_columns; ++i) {
         Type type = batch.columns_[i].type();
-        size_t idx = batch.columns_[i].index();
+        size_t idx = static_cast<size_t>(batch.columns_[i].index());
         const ChunkInfo& chunk = chunks_[current_row_group_index_ * total_columns + idx];
 
         if (chunk.size_in_bytes > static_cast<int64_t>(kTempBufferSize)) {

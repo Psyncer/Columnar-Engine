@@ -54,7 +54,7 @@ Batch* GlobalAggOperator::next() {
             const AggSpec& spec = specs_[i];
             const Column* column = spec.expr->evaluate(*batch);
             if (column == nullptr) {
-                // COUNT(*)
+                // for past COUNT(*), not needed anymore
                 states_.emplace_back(make_state(spec.agg_type, Type::Int64));
                 AggStatePtr& state = states_[i];
                 for (const auto& _ : batch->active_rows_) {
@@ -175,9 +175,9 @@ void FilterOperator::apply_mask(Batch* batch, std::vector<uint8_t>& mask) {
 GroupByAggOperator::GroupByAggOperator(std::unique_ptr<IOperator>&& child,
                                        std::vector<std::unique_ptr<IValueExpression>> group_exprs,
                                        std::vector<AggSpec> specs)
-    : child_(std::move(child)), group_exprs_(std::move(group_exprs)), specs_(std::move(specs)) {
+    : child_(std::move(child)), group_exprs_(std::move(group_exprs)), specs_(std::move(specs)),
+      id_to_str_(Type::String, -1) {
     str_to_id_.reserve(1 << 20);
-    id_to_str_.reserve(1 << 20);
     groups_.reserve(1 << 20);
 }
 
@@ -289,8 +289,6 @@ Batch* GroupByAggOperator::next() {
 
     result_batch_ = Batch(result_schema_, needed_columns);
 
-    std::string str;
-
     for (auto& [key, state] : groups_) {
         for (size_t i = 0; i < group_exprs_.size(); ++i) {
             Column& column = result_batch_.columns_[i];
@@ -305,8 +303,7 @@ Batch* GroupByAggOperator::next() {
                 column.push_value<int64_t>(key.values[i]);
                 break;
             case Type::String:
-                str = decode(key.values[i]);
-                column.push_string(str);
+                column.push_string(std::string(decode(key.values[i])));
                 break;
             case Type::Date:
                 column.push_value<int32_t>(key.values[i]);
@@ -344,7 +341,6 @@ Batch* OrderByOperator::next() {
     done_ = true;
 
     while (Batch* batch = child_->next()) {
-        std::cout << "ENTERED ORDERBY LOOP" << '\n';
         if (accumulated_batch_.columns_.empty()) {
             accumulated_batch_ = Batch(*batch);
             global_offset_ = accumulated_batch_.columns_[0].size();
