@@ -1,7 +1,6 @@
 #include <chrono>
 #include <iostream>
 #include <memory>
-#include <numeric>
 #include <string>
 
 #include "aggregate.hpp"
@@ -175,46 +174,6 @@ auto avg(const std::string& col, std::string alias = "",
     return AggSpec(AggType::Avg, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
 }
 
-void convert(const std::string& csv_schema, const std::string& csv_data,
-             const std::string& output_file) {
-
-    CsvReader reader = CsvReader::open_csv(csv_data, csv_schema);
-
-    Schema schema = reader.parse_schema();
-
-    ColumnarWriter writer = ColumnarWriter::open_output(output_file, schema);
-
-    ConversionBatch batch(schema);
-
-    std::vector<std::string> row;
-
-    row.reserve(schema.get_column_count());
-    while (reader.parse_row(schema, row)) {
-        if (row.empty()) {
-            break;
-        }
-        batch.add_row(row);
-
-        if (batch.is_full()) {
-            writer.write_batch(batch);
-            batch.clear();
-        }
-
-        row.clear();
-    }
-
-    if (!row.empty()) {
-        batch.add_row(row);
-    }
-
-    if (batch.get_row_count() != 0) {
-        writer.write_batch(batch);
-        batch.clear();
-    }
-
-    writer.write_metadata();
-}
-
 template <typename... Ts>
 std::vector<AggSpec> make_aggs(Ts&&... ts) {
     std::vector<AggSpec> v;
@@ -245,15 +204,15 @@ std::vector<OrderByOperator::OrderSpec> order_specs(Ts&&... ts) {
     return v;
 }
 
-void query00() {
+void query00(const std::string& columnar_path) {
     // ==============
     // SELECT COUNT(*)
     // FROM hits;
     // ==============
 
-    std::cout << "Query 0:\n";
+    std::cerr << "Query 0\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.global_agg(q.scan({""}), make_aggs(count("*")));
 
@@ -263,21 +222,21 @@ void query00() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query01() {
+void query01(const std::string& columnar_path) {
     // ==============
     // SELECT COUNT(*)
     // FROM hits
     // WHERE AdvEngineID <> 0;
     // ==============
 
-    std::cout << "Query 1:\n";
+    std::cerr << "Query 1\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan =
         q.global_agg(q.filter(q.scan({"AdvEngineID"}), not_equal(col("AdvEngineID"), lit(0))),
@@ -289,12 +248,12 @@ void query01() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query02() {
+void query02(const std::string& columnar_path) {
     // ==============
     // SELECT SUM(AdvEngineID)
     // SELECT COUNT(*)
@@ -302,9 +261,9 @@ void query02() {
     // FROM hits;
     // ==============
 
-    std::cout << "Query 2:\n";
+    std::cerr << "Query 2\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.global_agg(q.scan({"AdvEngineID", "ResolutionWidth"}),
                              make_aggs(sum("AdvEngineID"), count("*"), avg("ResolutionWidth")));
@@ -315,20 +274,20 @@ void query02() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query03() {
+void query03(const std::string& columnar_path) {
     // ==============
     // SELECT AVG(UserID)
     // FROM hits;
     // ==============
 
-    std::cout << "Query 3:\n";
+    std::cerr << "Query 3\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.global_agg(q.scan({"UserID"}), make_aggs(avg("UserID")));
 
@@ -338,20 +297,20 @@ void query03() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query04() {
+void query04(const std::string& columnar_path) {
     // ==============
     // SELECT COUNT(DISTINCT UserID)
     // FROM hits;
     // ==============
 
-    std::cout << "Query 4:\n";
+    std::cerr << "Query 4\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.global_agg(q.scan({"UserID"}), make_aggs(count_distinct("UserID")));
 
@@ -361,20 +320,20 @@ void query04() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query05() {
+void query05(const std::string& columnar_path) {
     // ==============
     // SELECT COUNT(DISTINCT SearchPhrase)
     // FROM hits;
     // ==============
 
-    std::cout << "Query 5:\n";
+    std::cerr << "Query 5\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.global_agg(q.scan({"SearchPhrase"}), make_aggs(count_distinct("SearchPhrase")));
 
@@ -384,21 +343,21 @@ void query05() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query06() {
+void query06(const std::string& columnar_path) {
     // ==============
     // SELECT MIN(EventDate)
     // SELECT MAX(EventDate)
     // FROM hits;
     // ==============
 
-    std::cout << "Query 6:\n";
+    std::cerr << "Query 6\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.global_agg(q.scan({"EventDate"}), make_aggs(min("EventDate"), max("EventDate")));
 
@@ -408,12 +367,12 @@ void query06() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query07() {
+void query07(const std::string& columnar_path) {
     // ==============
     // SELECT AdvEngineID
     // SELECT COUNT(*)
@@ -423,9 +382,9 @@ void query07() {
     // ORDER BY COUNT(*) DESC;
     // ==============
 
-    std::cout << "Query 7:\n";
+    std::cerr << "Query 7\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.order_by(
         q.group_by(q.filter(q.scan({"AdvEngineID"}), not_equal(col("AdvEngineID"), lit(0))),
@@ -438,12 +397,12 @@ void query07() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query08() {
+void query08(const std::string& columnar_path) {
     // ==============
     // SELECT RegionID
     // SELECT COUNT(DISTINCT UserID)
@@ -453,9 +412,9 @@ void query08() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "Query 8:\n";
+    std::cerr << "Query 8\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan =
         q.limit(q.order_by(q.group_by(q.scan({"RegionID", "UserID"}), make_groups(col("RegionID")),
@@ -470,12 +429,12 @@ void query08() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query09() {
+void query09(const std::string& columnar_path) {
     // ==============
     // SELECT RegionID
     // SELECT SUM(AdvEngineID)
@@ -488,9 +447,9 @@ void query09() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "Query 9:\n";
+    std::cerr << "Query 9\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.scan({"RegionID", "AdvEngineID", "ResolutionWidth", "UserID"}),
@@ -507,12 +466,12 @@ void query09() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query10() {
+void query10(const std::string& columnar_path) {
     // ==============
     // SELECT MobilePhoneModel, COUNT(DISTINCT UserID) AS u
     // FROM hits
@@ -522,9 +481,9 @@ void query10() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 10:\n";
+    std::cerr << "Query 10\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(q.order_by(q.group_by(q.filter(q.scan({"MobilePhoneModel", "UserID"}),
                                                        not_equal(col("MobilePhoneModel"), lit(""))),
@@ -540,12 +499,12 @@ void query10() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query11() {
+void query11(const std::string& columnar_path) {
     // ==============
     // SELECT MobilePhone, MobilePhoneModel, COUNT(DISTINCT UserID) AS u
     // FROM hits
@@ -555,9 +514,9 @@ void query11() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 11:\n";
+    std::cerr << "Query 11\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.filter(q.scan({"MobilePhone", "MobilePhoneModel", "UserID"}),
@@ -574,12 +533,12 @@ void query11() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query12() {
+void query12(const std::string& columnar_path) {
     // ==============
     // SELECT SearchPhrase, COUNT(*) AS c
     // FROM hits
@@ -589,9 +548,9 @@ void query12() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 12:\n";
+    std::cerr << "Query 12\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(
@@ -607,12 +566,12 @@ void query12() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query13() {
+void query13(const std::string& columnar_path) {
     // ==============
     // SELECT SearchPhrase, COUNT(DISTINCT UserID) AS u
     // FROM hits
@@ -622,9 +581,9 @@ void query13() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 13:\n";
+    std::cerr << "Query 13\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "UserID"}),
                                                        not_equal(col("SearchPhrase"), lit(""))),
@@ -640,12 +599,12 @@ void query13() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query14() {
+void query14(const std::string& columnar_path) {
     // ==============
     // SELECT SearchEngineID, SearchPhrase, COUNT(*) AS c
     // FROM hits
@@ -655,9 +614,9 @@ void query14() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 14:\n";
+    std::cerr << "Query 14\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan =
         q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchEngineID", "SearchPhrase"}),
@@ -674,12 +633,12 @@ void query14() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query15() {
+void query15(const std::string& columnar_path) {
     // ==============
     // SELECT UserID, COUNT(*)
     // FROM hits
@@ -688,9 +647,9 @@ void query15() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 15:\n";
+    std::cerr << "Query 15\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(q.order_by(q.group_by(q.scan({"UserID"}), make_groups(col("UserID")),
                                               make_aggs(count("*", "c"))),
@@ -704,12 +663,12 @@ void query15() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query16() {
+void query16(const std::string& columnar_path) {
     // ==============
     // SELECT UserID, SearchPhrase, COUNT(*)
     // FROM hits
@@ -718,9 +677,9 @@ void query16() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 16:\n";
+    std::cerr << "Query 16\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(q.order_by(q.group_by(q.scan({"UserID", "SearchPhrase"}),
                                               make_groups(col("UserID"), col("SearchPhrase")),
@@ -735,12 +694,12 @@ void query16() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query17() {
+void query17(const std::string& columnar_path) {
     // ==============
     // SELECT UserID, SearchPhrase, COUNT(*)
     // FROM hits
@@ -748,9 +707,9 @@ void query17() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 17:\n";
+    std::cerr << "Query 17\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(q.group_by(q.scan({"UserID", "SearchPhrase"}),
                                    make_groups(col("UserID"), col("SearchPhrase")),
@@ -763,12 +722,12 @@ void query17() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query18() {
+void query18(const std::string& columnar_path) {
     // ==============
     // SELECT UserID, extract(minute FROM EventTime) AS m, SearchPhrase, COUNT(*)
     // FROM hits
@@ -777,9 +736,9 @@ void query18() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 18:\n";
+    std::cerr << "Query 18\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.scan({"UserID", "EventTime", "SearchPhrase"}),
@@ -798,21 +757,21 @@ void query18() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query19() {
+void query19(const std::string& columnar_path) {
     // ==============
     // SELECT UserID
     // FROM hits
     // WHERE UserID = 435090932899640449;
     // ==============
 
-    std::cout << "\nQuery 19:\n";
+    std::cerr << "Query 19\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.filter(q.scan({"UserID"}), equal(col("UserID"), lit(435090932899640449LL)));
 
@@ -822,21 +781,21 @@ void query19() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query20() {
+void query20(const std::string& columnar_path) {
     // ==============
     // SELECT COUNT(*)
     // FROM hits
     // WHERE URL LIKE '%google%';
     // ==============
 
-    std::cout << "\nQuery 20:\n";
+    std::cerr << "Query 20\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan =
         q.global_agg(q.filter(q.scan({"URL"}), std::make_unique<Like>(col("URL"), "%google%")),
@@ -848,12 +807,12 @@ void query20() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query21() {
+void query21(const std::string& columnar_path) {
     // ==============
     // SELECT SearchPhrase, MIN(URL), COUNT(*) AS c
     // FROM hits
@@ -863,9 +822,9 @@ void query21() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 21:\n";
+    std::cerr << "Query 21\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan =
         q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "URL"}),
@@ -883,12 +842,12 @@ void query21() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query22() {
+void query22(const std::string& columnar_path) {
     // ==============
     // SELECT SearchPhrase, MIN(URL), MIN(Title), COUNT(*) AS c, COUNT(DISTINCT UserID)
     // FROM hits
@@ -898,9 +857,9 @@ void query22() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 22:\n";
+    std::cerr << "Query 22\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "URL", "Title", "UserID"}),
@@ -920,12 +879,12 @@ void query22() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query23() {
+void query23(const std::string& columnar_path) {
     // ==============
     // SELECT *
     // FROM hits
@@ -934,9 +893,9 @@ void query23() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 23:\n";
+    std::cerr << "Query 23\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(q.order_by(q.filter(q.scan({"*"}), like(col("URL"), "%google%")),
                                    order_specs(OrderByOperator::OrderSpec{
@@ -949,12 +908,12 @@ void query23() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query24() {
+void query24(const std::string& columnar_path) {
     // ==============
     // SELECT SearchPhrase
     // FROM hits
@@ -963,9 +922,9 @@ void query24() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 24:\n";
+    std::cerr << "Query 24\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(q.order_by(q.filter(q.scan({"SearchPhrase", "EventTime"}),
                                             not_equal(col("SearchPhrase"), lit(""))),
@@ -979,12 +938,12 @@ void query24() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query25() {
+void query25(const std::string& columnar_path) {
     // ==============
     // SELECT SearchPhrase
     // FROM hits
@@ -993,9 +952,9 @@ void query25() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 25:\n";
+    std::cerr << "Query 25\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(q.filter(q.scan({"SearchPhrase"}), not_equal(col("SearchPhrase"), lit(""))),
@@ -1009,12 +968,12 @@ void query25() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query26() {
+void query26(const std::string& columnar_path) {
     // ==============
     // SELECT SearchPhrase
     // FROM hits
@@ -1023,9 +982,9 @@ void query26() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 26:\n";
+    std::cerr << "Query 26\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(q.filter(q.scan({"SearchPhrase", "EventTime"}),
@@ -1042,12 +1001,12 @@ void query26() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query27() {
+void query27(const std::string& columnar_path) {
     // ==============
     // SELECT CounterID, AVG(STRLEN(URL)) AS l, COUNT(*) AS c
     // FROM hits
@@ -1058,9 +1017,9 @@ void query27() {
     // LIMIT 25;
     // ==============
 
-    std::cout << "\nQuery 27:\n";
+    std::cerr << "Query 27\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(
@@ -1079,12 +1038,12 @@ void query27() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query28() {
+void query28(const std::string& columnar_path) {
     // ==============
     // SELECT REGEXP_REPLACE(Referer, '^https?://(?:www\\.)?([^/]+)/.*$', '\\1') AS k,
     //      AVG(STRLEN(Referer)) AS l,
@@ -1098,9 +1057,9 @@ void query28() {
     // LIMIT 25;
     // ==============
 
-    std::cout << "\nQuery 28:\n";
+    std::cerr << "Query 28\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto k_expr = regexp_replace(col("Referer"), "^https?://(?:www\\.)?([^/]+)/.*$", "\\1");
 
@@ -1121,20 +1080,20 @@ void query28() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query29() {
+void query29(const std::string& columnar_path) {
     // ==============
     // SELECT SUM(ResolutionWidth), SUM(ResolutionWidth + 1), ..., SUM(ResolutionWidth + 89)
     // FROM hits;
     // ==============
 
-    std::cout << "\nQuery 29:\n";
+    std::cerr << "Query 29\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto scan = q.scan({"ResolutionWidth"});
 
@@ -1237,12 +1196,12 @@ void query29() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query30() {
+void query30(const std::string& columnar_path) {
     // ==============
     // SELECT SearchEngineID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth)
     // FROM hits
@@ -1252,9 +1211,9 @@ void query30() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 30:\n";
+    std::cerr << "Query 30\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.filter(q.scan({"SearchEngineID", "ClientIP", "IsRefresh",
@@ -1272,12 +1231,12 @@ void query30() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query31() {
+void query31(const std::string& columnar_path) {
     // ==============
     // SELECT WatchID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth)
     // FROM hits
@@ -1287,9 +1246,9 @@ void query31() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 31:\n";
+    std::cerr << "Query 31\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.filter(q.scan({"WatchID", "ClientIP", "IsRefresh",
@@ -1307,12 +1266,12 @@ void query31() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query32() {
+void query32(const std::string& columnar_path) {
     // ==============
     // SELECT WatchID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth)
     // FROM hits
@@ -1321,9 +1280,9 @@ void query32() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 32:\n";
+    std::cerr << "Query 32\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.scan({"WatchID", "ClientIP", "IsRefresh", "ResolutionWidth"}),
@@ -1339,12 +1298,12 @@ void query32() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query33() {
+void query33(const std::string& columnar_path) {
     // ==============
     // SELECT URL, COUNT(*) AS c
     // FROM hits
@@ -1353,9 +1312,9 @@ void query33() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 33:\n";
+    std::cerr << "Query 33\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan = q.limit(
         q.order_by(q.group_by(q.scan({"URL"}), make_groups(col("URL")), make_aggs(count("*", "c"))),
@@ -1369,12 +1328,12 @@ void query33() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query34() {
+void query34(const std::string& columnar_path) {
     // ==============
     // SELECT 1, URL, COUNT(*) AS c
     // FROM hits
@@ -1383,9 +1342,9 @@ void query34() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 34:\n";
+    std::cerr << "Query 34\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan =
         q.limit(q.order_by(q.group_by(q.scan({"URL"}), make_groups(col("one", lit(1)), col("URL")),
@@ -1400,12 +1359,12 @@ void query34() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query35() {
+void query35(const std::string& columnar_path) {
     // ==============
     // SELECT ClientIP, ClientIP - 1, ClientIP - 2, ClientIP - 3, COUNT(*) AS c
     // FROM hits
@@ -1414,9 +1373,9 @@ void query35() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 35:\n";
+    std::cerr << "Query 35\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto plan =
         q.limit(q.order_by(q.group_by(q.scan({"ClientIP"}),
@@ -1435,12 +1394,12 @@ void query35() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query36() {
+void query36(const std::string& columnar_path) {
     // ==============
     // SELECT URL, COUNT(*) AS PageViews
     // FROM hits
@@ -1455,9 +1414,9 @@ void query36() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 36:\n";
+    std::cerr << "Query 36\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1481,12 +1440,12 @@ void query36() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query37() {
+void query37(const std::string& columnar_path) {
     // ==============
     // SELECT Title, COUNT(*) AS PageViews
     // FROM hits
@@ -1501,9 +1460,9 @@ void query37() {
     // LIMIT 10;
     // ==============
 
-    std::cout << "\nQuery 37:\n";
+    std::cerr << "Query 37\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1527,12 +1486,12 @@ void query37() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query38() {
+void query38(const std::string& columnar_path) {
     // ==============
     // SELECT URL, COUNT(*) AS PageViews
     // FROM hits
@@ -1547,9 +1506,9 @@ void query38() {
     // LIMIT 10 OFFSET 1000;
     // ==============
 
-    std::cout << "\nQuery 38:\n";
+    std::cerr << "Query 38\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1573,12 +1532,12 @@ void query38() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query39() {
+void query39(const std::string& columnar_path) {
     // ==============
     // SELECT TraficSourceID, SearchEngineID, AdvEngineID,
     //        CASE WHEN (SearchEngineID = 0 AND AdvEngineID = 0)
@@ -1595,9 +1554,9 @@ void query39() {
     // LIMIT 10 OFFSET 1000;
     // ==============
 
-    std::cout << "\nQuery 39:\n";
+    std::cerr << "Query 39\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto src_expr =
         case_when(and_expr(equal(col("SearchEngineID"), lit(0)), equal(col("AdvEngineID"), lit(0))),
@@ -1627,12 +1586,12 @@ void query39() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query40() {
+void query40(const std::string& columnar_path) {
     // ==============
     // SELECT URLHash, EventDate, COUNT(*) AS PageViews
     // FROM hits
@@ -1647,9 +1606,9 @@ void query40() {
     // LIMIT 10 OFFSET 100;
     // ==============
 
-    std::cout << "\nQuery 40:\n";
+    std::cerr << "Query 40\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1675,12 +1634,12 @@ void query40() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query41() {
+void query41(const std::string& columnar_path) {
     // ==============
     // SELECT WindowClientWidth, WindowClientHeight, COUNT(*) AS PageViews
     // FROM hits
@@ -1695,9 +1654,9 @@ void query41() {
     // LIMIT 10 OFFSET 10000;
     // ==============
 
-    std::cout << "\nQuery 41:\n";
+    std::cerr << "Query 41\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1724,12 +1683,12 @@ void query41() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void query42() {
+void query42(const std::string& columnar_path) {
     // ==============
     // SELECT DATE_TRUNC('minute', EventTime) AS M, COUNT(*) AS PageViews
     // FROM hits
@@ -1743,9 +1702,9 @@ void query42() {
     // LIMIT 10 OFFSET 1000;
     // ==============
 
-    std::cout << "\nQuery 42:\n";
+    std::cerr << "Query 42\n";
 
-    QueryBuilder q("/home/mike/Columnar-Engine/tests/big.columnar");
+    QueryBuilder q(columnar_path);
 
     auto predicate =
         and_expr(and_expr(and_expr(equal(col("CounterID"), lit(62)),
@@ -1773,182 +1732,235 @@ void query42() {
     }
     auto end = std::chrono::steady_clock::now();
 
-    std::cout << "Time: "
+    std::cerr << "Time: "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n\n";
 }
 
-void run_query(int n) {
+void run_query(int n, const std::string& columnar_path) {
     switch (n) {
     case 0:
-        query00();
+        query00(columnar_path);
         break;
     case 1:
-        query01();
+        query01(columnar_path);
         break;
     case 2:
-        query02();
+        query02(columnar_path);
         break;
     case 3:
-        query03();
+        query03(columnar_path);
         break;
     case 4:
-        query04();
+        query04(columnar_path);
         break;
     case 5:
-        query05();
+        query05(columnar_path);
         break;
     case 6:
-        query06();
+        query06(columnar_path);
         break;
     case 7:
-        query07();
+        query07(columnar_path);
         break;
     case 8:
-        query08();
+        query08(columnar_path);
         break;
     case 9:
-        query09();
+        query09(columnar_path);
         break;
 
     case 10:
-        query10();
+        query10(columnar_path);
         break;
     case 11:
-        query11();
+        query11(columnar_path);
         break;
     case 12:
-        query12();
+        query12(columnar_path);
         break;
     case 13:
-        query13();
+        query13(columnar_path);
         break;
     case 14:
-        query14();
+        query14(columnar_path);
         break;
     case 15:
-        query15();
+        query15(columnar_path);
         break;
     case 16:
-        query16();
+        query16(columnar_path);
         break;
     case 17:
-        query17();
+        query17(columnar_path);
         break;
     case 18:
-        query18();
+        query18(columnar_path);
         break;
     case 19:
-        query19();
+        query19(columnar_path);
         break;
     case 20:
-        query20();
+        query20(columnar_path);
         break;
     case 21:
-        query21();
+        query21(columnar_path);
         break;
     case 22:
-        query22();
+        query22(columnar_path);
         break;
     case 23:
-        query23();
-        break;
+        std::cerr << "Query 23 disabled (OOM risk)\n";
+        return;
     case 24:
-        query24();
+        query24(columnar_path);
         break;
     case 25:
-        query25();
+        query25(columnar_path);
         break;
     case 26:
-        query26();
+        query26(columnar_path);
         break;
     case 27:
-        query27();
+        query27(columnar_path);
         break;
     case 28:
-        query28();
+        query28(columnar_path);
         break;
     case 29:
-        query29();
+        query29(columnar_path);
         break;
     case 30:
-        query30();
+        query30(columnar_path);
         break;
     case 31:
-        query31();
+        query31(columnar_path);
         break;
     case 32:
-        query32();
-        break;
+        std::cerr << "Query 32 disabled (OOM risk)\n";
+        return;
     case 33:
-        query33();
+        query33(columnar_path);
         break;
     case 34:
-        query34();
+        query34(columnar_path);
         break;
     case 35:
-        query35();
+        query35(columnar_path);
         break;
     case 36:
-        query36();
+        query36(columnar_path);
         break;
     case 37:
-        query37();
+        query37(columnar_path);
         break;
     case 38:
-        query38();
+        query38(columnar_path);
         break;
     case 39:
-        query39();
+        query39(columnar_path);
         break;
     case 40:
-        query40();
+        query40(columnar_path);
         break;
     case 41:
-        query41();
+        query41(columnar_path);
         break;
     case 42:
-        query42();
+        query42(columnar_path);
         break;
     default:
-        std::cerr << "Invalid query: " << n << std::endl;
+        std::cerr << "Invalid query: " << n << '\n';
         break;
     }
 }
 
+void convert(const std::string& csv_schema, const std::string& csv_data,
+             const std::string& output_file) {
+
+    CsvReader reader = CsvReader::open_csv(csv_data, csv_schema);
+
+    Schema schema = reader.parse_schema();
+
+    ColumnarWriter writer = ColumnarWriter::open_output(output_file, schema);
+
+    ConversionBatch batch(schema);
+
+    std::vector<std::string> row;
+
+    row.reserve(schema.get_column_count());
+    while (reader.parse_row(schema, row)) {
+        if (row.empty()) {
+            break;
+        }
+        batch.add_row(row);
+
+        if (batch.is_full()) {
+            writer.write_batch(batch);
+            batch.clear();
+        }
+
+        row.clear();
+    }
+
+    if (!row.empty()) {
+        batch.add_row(row);
+    }
+
+    if (batch.get_row_count() != 0) {
+        writer.write_batch(batch);
+        batch.clear();
+    }
+
+    writer.write_metadata();
+}
+
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " <schema.csv>" << " <data.csv>" << std::endl;
-        return 1;
-    }
-
-    std::string csv_schema = argv[1];
-    std::string csv_data = argv[2];
-    std::string output_file = "/home/mike/Columnar-Engine/tests/big.columnar";
-
-    std::cout << "\nConverting CSV to columnar file..." << std::endl;
-
     try {
-        convert(csv_schema, csv_data, output_file);
-    } catch (...) {
-        std::cerr << "Need to log STL exceptions" << "\n  at " << __FILE__ << ":" << __LINE__
-                  << "\n  in " << __func__ << std::endl;
-        std::abort();
-    }
+        if (argc < 2) {
+            std::cerr << "Usage:\n"
+                      << "  --convert <schema_csv> <input_csv> <output_columnar>\n"
+                      << "  --run-query <query_id> <columnar_path>\n";
+            return 1;
+        }
 
-    std::vector<int> num_query(43);
-    std::iota(num_query.begin(), num_query.end(), 0);
-    for (auto n : num_query) {
-        if (n == 18 || n == 23 || n == 29 || n == 32 || n == 33 || n == 34) {
-            continue;
+        std::string mode = argv[1];
+
+        if (mode == "--convert") {
+            if (argc != 5) {
+                std::cerr << "Invalid --convert usage\n";
+                return 1;
+            }
+
+            std::string csv_schema = argv[2];
+            std::string csv_data = argv[3];
+            std::string output_file = argv[4];
+
+            convert(csv_schema, csv_data, output_file);
+
+            return 0;
         }
-        try {
-            run_query(n);
-        } catch (const std::exception& e) {
-            std::cerr << "Query " << n << " failed: " << e.what() << std::endl;
-        } catch (...) {
-            std::cerr << "Query " << n << " failed with unknown exception" << std::endl;
+
+        if (mode == "--run-query") {
+            if (argc != 4) {
+                std::cerr << "Invalid --run-query usage\n";
+                return 1;
+            }
+
+            int query_id = std::stoi(argv[2]);
+            std::string columnar_path = argv[3];
+
+            run_query(query_id, columnar_path);
+
+            return 0;
         }
+
+        std::cerr << "Unknown mode: " << mode << "\n";
+
+        return 1;
+    } catch (const std::exception& e) {
+        std::cerr << "Fatal error: " << e.what() << "\n";
+        return 1;
     }
 
     return 0;

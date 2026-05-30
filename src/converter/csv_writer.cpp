@@ -35,34 +35,38 @@ void CsvWriter::write_batch(const Batch& batch) {
             switch (type) {
             case Type::Int16: {
                 auto value = column.get_value<int16_t>(row);
-                std::cout << value << ' ';
+                std::cout << value;
                 break;
             }
             case Type::Int32: {
                 auto value = column.get_value<int32_t>(row);
-                std::cout << value << ' ';
+                std::cout << value;
                 break;
             }
             case Type::Int64: {
                 auto value = column.get_value<int64_t>(row);
-                std::cout << value << ' ';
+                std::cout << value;
                 break;
             }
             case Type::String: {
                 auto value = column.get_string(row);
-                std::cout << value << ' ';
+                std::cout << value;
                 break;
             }
             case Type::Date: {
                 auto value = column.get_value<int32_t>(row);
-                std::cout << convert_to_date(value) << ' ';
+                std::cout << convert_to_date(value);
                 break;
             }
             case Type::Timestamp: {
                 auto value = column.get_value<int64_t>(row);
-                std::cout << convert_to_timestamp(value) << ' ';
+                std::cout << convert_to_timestamp(value);
                 break;
             }
+            }
+            
+            if (col < column_count - 1) {
+                std::cout << ',';
             }
         }
 

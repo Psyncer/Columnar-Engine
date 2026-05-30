@@ -49,20 +49,21 @@ Batch* GlobalAggOperator::next() {
     }
     done_ = true;
 
+    bool states_initialized = false;
+
     while (Batch* batch = child_->next()) {
+        if (!states_initialized) {
+            states_.resize(specs_.size());
+            for (size_t i = 0; i < specs_.size(); ++i) {
+                const Column* col = specs_[i].expr->evaluate(*batch);
+                states_[i] = make_state(specs_[i].agg_type, col->type());
+            }
+            states_initialized = true;
+        }
         for (size_t i = 0; i < specs_.size(); ++i) {
             const AggSpec& spec = specs_[i];
             const Column* column = spec.expr->evaluate(*batch);
-            if (column == nullptr) {
-                // for past COUNT(*), not needed anymore
-                states_.emplace_back(make_state(spec.agg_type, Type::Int64));
-                AggStatePtr& state = states_[i];
-                for (const auto& _ : batch->active_rows_) {
-                    state->update(0);
-                }
-                continue;
-            }
-            states_.emplace_back(make_state(spec.agg_type, column->type()));
+
             AggStatePtr& state = states_[i];
 
             switch (column->type()) {

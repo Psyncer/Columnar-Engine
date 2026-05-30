@@ -16,7 +16,7 @@ namespace columnar {
 class Column {
 private:
     void* data_ = nullptr;
-    std::vector<int32_t> offsets_;
+    std::vector<int64_t> offsets_;
     size_t capacity_ = kColumnCapacity;
     size_t head_ = 0;
     Type type_;
@@ -294,10 +294,6 @@ public:
 
     size_t size() const {
         return head_;
-    }
-
-    int32_t total_string_size() const {
-        return offsets_.back();
     }
 
     size_t capacity() const {
