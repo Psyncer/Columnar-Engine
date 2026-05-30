@@ -11,8 +11,22 @@ enum class Type : int8_t {
     String      = 3,
     Date        = 4,
     Timestamp   = 5,
-    Char        = 6,
 };
+
+template <typename T>
+constexpr bool type_matches(Type type) {
+    if constexpr (std::is_same_v<T, int16_t>) {
+        return type == Type::Int16;
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        return type == Type::Int32 || type == Type::Date;
+    } else if constexpr (std::is_same_v<T, int64_t>) {
+        return type == Type::Int64 || type == Type::Timestamp;
+    } else if constexpr (std::is_same_v<T, std::string>) {
+        return type == Type::String;
+    }
+
+    return false;
+}
 
 inline const char* to_string(Type type) {
     switch (type) {
@@ -28,8 +42,6 @@ inline const char* to_string(Type type) {
         return "DATE";
     case Type::Timestamp:
         return "TIMESTAMP";
-    case Type::Char:
-        return "char";
     default:
         return "UNSUPPORTED";
     }

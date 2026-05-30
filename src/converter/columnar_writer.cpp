@@ -5,9 +5,10 @@
 #include <vector>
 
 #include "assert.hpp"
-#include "batch.hpp"
 #include "chunk_info.hpp"
 #include "columnar_writer.hpp"
+#include "config.hpp"
+#include "conversion_batch.hpp"
 #include "schema.hpp"
 
 namespace columnar {
@@ -27,7 +28,7 @@ ColumnarWriter::ColumnarWriter(std::ofstream&& file, const Schema& schema)
     buffer_.reserve(kWriteBufSize);
 }
 
-void ColumnarWriter::write_batch(const Batch& batch) {
+void ColumnarWriter::write_batch(const ConversionBatch& batch) {
     for (size_t i = 0; i < schema_.get_column_count(); ++i) {
         ChunkInfo chunk;
         chunk.offset = offset_;
@@ -35,34 +36,43 @@ void ColumnarWriter::write_batch(const Batch& batch) {
         chunk.num_rows = batch.get_row_count();
 
         const BatchColumn& column_data = batch.get_column(i);
-        Type type = schema_.get_column(i).type_;
+        Type type = schema_.get_column_type(i);
 
-        if (type == Type::Int16) {
+        switch (type) {
+        case Type::Int16: {
             const auto& column = column_data.get<int16_t>();
             write_column(column);
-        } else if (type == Type::Int32) {
+            break;
+        }
+        case Type::Int32: {
             const auto& column = column_data.get<int32_t>();
             write_column(column);
-        } else if (type == Type::Int64) {
+            break;
+        }
+        case Type::Int64: {
             const auto& column = column_data.get<int64_t>();
             write_column(column);
-        } else if (type == Type::String) {
+            break;
+        }
+        case Type::String: {
             const auto& column = column_data.get<std::string>();
-
             for (const auto& str : column) {
                 int32_t len = static_cast<int32_t>(str.size());
                 write_int<int32_t>(len);
                 write_string(str, len);
             }
-        } else if (type == Type::Date) {
+            break;
+        }
+        case Type::Date: {
             const auto& column = column_data.get<int32_t>();
             write_column(column);
-        } else if (type == Type::Timestamp) {
+            break;
+        }
+        case Type::Timestamp: {
             const auto& column = column_data.get<int64_t>();
             write_column(column);
-        } else if (type == Type::Char) {
-            const auto& column = column_data.get<char>();
-            write_column(column);
+            break;
+        }
         }
 
         chunk.size_in_bytes = offset_ - chunk.offset;
@@ -73,15 +83,15 @@ void ColumnarWriter::write_batch(const Batch& batch) {
 }
 
 void ColumnarWriter::write_metadata() {
-    int64_t metastart = offset_;
+    int64_t meta_start = offset_;
     write_int<int32_t>(static_cast<int32_t>(schema_.get_column_count()));
 
     for (size_t i = 0; i < schema_.get_column_count(); ++i) {
-        const SchemaColumn& column = schema_.get_column(i);
+        const std::string& column_name = schema_.get_column_name(i);
+        Type column_type = schema_.get_column_type(i);
 
-        std::string column_name = column.name_;
         int32_t len = static_cast<int32_t>(column_name.size());
-        int16_t type = static_cast<int16_t>(column.type_);  // enum
+        int16_t type = static_cast<int16_t>(column_type);  // enum
 
         write_int<int32_t>(len);
         write_string(column_name, len);
@@ -98,8 +108,9 @@ void ColumnarWriter::write_metadata() {
         write_int<int32_t>(static_cast<int32_t>(chunk_info_[i].num_rows));
     }
 
-    int64_t metasize = offset_ - metastart;
-    write_int<int64_t>(metasize);
+    int64_t meta_size = offset_ - meta_start;
+    write_int<int64_t>(meta_size);
+    write_int<int64_t>(meta_start);
 
     flush();
 }

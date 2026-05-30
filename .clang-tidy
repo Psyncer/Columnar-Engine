@@ -22,7 +22,14 @@ Checks: >
   -readability-redundant-member-init,
   -cppcoreguidelines-owning-memory,
   -readability-simplify-boolean-expr,
-  -readability-identifier-naming
+  -readability-identifier-naming,
+  -cppcoreguidelines-special-member-functions,
+  -cppcoreguidelines-prefer-member-initializer,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -cppcoreguidelines-no-malloc,
+  -cppcoreguidelines-pro-type-vararg,
+  -bugprone-not-null-terminated-result,
+  -readability-static-accessed-through-instance
 
 CheckOptions:
   - key: readability-identifier-naming.ClassMemberSuffix

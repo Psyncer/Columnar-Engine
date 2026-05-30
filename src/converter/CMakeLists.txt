@@ -1,7 +1,7 @@
 add_library(converter
     csv_reader.cpp
     columnar_writer.cpp
-    columnar_reader.cpp
+    conversion_batch.cpp
     csv_writer.cpp
     parsing.cpp
 )
