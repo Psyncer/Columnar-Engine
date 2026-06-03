@@ -1,9 +1,0 @@
-id,int64
-name,string
-age,int64
-location,string
-score16,int16
-rank32,int32
-birth_date,DATE
-last_login,TIMESTAMP
-initial,char
