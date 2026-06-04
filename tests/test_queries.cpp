@@ -150,6 +150,13 @@ auto count_distinct(const std::string& col, std::string alias = "",
                    alias);
 }
 
+auto str_count_distinct(const std::string& col, std::string alias = "",
+                    std::unique_ptr<IValueExpression>&& expr = nullptr) {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::StrCountDistinct, col, std::make_unique<ColumnRef>(col, std::move(expr)),
+                   alias);
+}
+
 auto sum(const std::string& col, std::string alias = "",
          std::unique_ptr<IValueExpression>&& expr = nullptr) {
     alias = (alias == "") ? col : alias;
@@ -162,10 +169,22 @@ auto min(const std::string& col, std::string alias = "",
     return AggSpec(AggType::Min, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
 }
 
+auto str_min(const std::string& col, std::string alias = "",
+         std::unique_ptr<IValueExpression>&& expr = nullptr) {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::StrMin, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
+}
+
 auto max(const std::string& col, std::string alias = "",
          std::unique_ptr<IValueExpression>&& expr = nullptr) {
     alias = (alias == "") ? col : alias;
     return AggSpec(AggType::Max, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
+}
+
+auto str_max(const std::string& col, std::string alias = "",
+         std::unique_ptr<IValueExpression>&& expr = nullptr) {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::StrMax, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
 }
 
 auto avg(const std::string& col, std::string alias = "",
@@ -335,7 +354,7 @@ void query05(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.global_agg(q.scan({"SearchPhrase"}), make_aggs(count_distinct("SearchPhrase")));
+    auto plan = q.global_agg(q.scan({"SearchPhrase"}), make_aggs(str_count_distinct("SearchPhrase")));
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -831,7 +850,7 @@ void query21(const std::string& columnar_path) {
                                                and_expr(like(col("URL"), "%google%"),
                                                         not_equal(col("SearchPhrase"), lit("")))),
                                       make_groups(col("SearchPhrase")),
-                                      make_aggs(min("URL"), count("*", "c"))),
+                                      make_aggs(str_min("URL"), count("*", "c"))),
                            order_specs(OrderByOperator::OrderSpec{
                                col("c"), OrderByOperator::OrderDirection::Desc})),
                 10);
@@ -867,7 +886,7 @@ void query22(const std::string& columnar_path) {
                                                          not_like(col("URL"), "%.google.%")),
                                                 not_equal(col("SearchPhrase"), lit("")))),
                               make_groups(col("SearchPhrase")),
-                              make_aggs(min("URL"), min("Title"), count("*", "c"),
+                              make_aggs(str_min("URL"), str_min("Title"), count("*", "c"),
                                         count_distinct("UserID"))),
                    order_specs(OrderByOperator::OrderSpec{col("c"),
                                                           OrderByOperator::OrderDirection::Desc})),
@@ -1068,7 +1087,7 @@ void query28(const std::string& columnar_path) {
             q.having(q.group_by(q.filter(q.scan({"Referer"}), not_equal(col("Referer"), lit(""))),
                                 make_groups(col("k", std::move(k_expr))),
                                 make_aggs(avg("Referer", "l", str_len(col("Referer"))),
-                                          count("*", "c"), min("Referer"))),
+                                          count("*", "c"), str_min("Referer"))),
                      greater(col("c"), lit(100000))),
             order_specs(
                 OrderByOperator::OrderSpec{col("l"), OrderByOperator::OrderDirection::Desc})),
@@ -1837,8 +1856,10 @@ void run_query(int n, const std::string& columnar_path) {
         query31(columnar_path);
         break;
     case 32:
-        std::cerr << "Query 32 disabled (OOM risk)\n";
-        return;
+        query32(columnar_path);
+        break;
+        // std::cerr << "Query 32 disabled (OOM risk)\n";
+        // return;
     case 33:
         query33(columnar_path);
         break;

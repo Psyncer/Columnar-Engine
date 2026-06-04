@@ -13,7 +13,7 @@ class IFilterExpression;
 
 class IValueExpression {
 public:
-    virtual const Column* evaluate(const Batch& batch) = 0;
+    virtual Column evaluate(const Batch& batch) = 0;
     virtual Type output_type() const = 0;
     virtual ~IValueExpression() = default;
 };
@@ -21,13 +21,13 @@ public:
 class ColumnRef : public IValueExpression {
 private:
     std::string name_;
-    Column column_;
+    Type type_;
     std::unique_ptr<IValueExpression> expr_ = nullptr;
 
 public:
     ColumnRef(const std::string& name, std::unique_ptr<IValueExpression>&& expr = nullptr);
 
-    const Column* evaluate(const Batch& batch) override;
+    Column evaluate(const Batch& batch) override;
 
     Type output_type() const override;
 
@@ -37,14 +37,14 @@ public:
 class Literal : public IValueExpression {
 private:
     std::variant<int64_t, std::string> literal_;
-    Column column_;
+    Type type_;
 
 public:
     template <typename T>
     Literal(T literal) : literal_(literal) {
     }
 
-    const Column* evaluate(const Batch& batch) override;
+    Column evaluate(const Batch& batch) override;
 
     Type output_type() const override;
 };
@@ -53,12 +53,12 @@ class Add : public IValueExpression {
 private:
     std::unique_ptr<IValueExpression> left_;
     std::unique_ptr<IValueExpression> right_;
-    Column column_;
+    Type type_;
 
 public:
     Add(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right);
 
-    const Column* evaluate(const Batch& batch) override;
+    Column evaluate(const Batch& batch) override;
 
     Type output_type() const override;
 };
@@ -68,12 +68,12 @@ private:
     std::unique_ptr<IValueExpression> left_;
     std::unique_ptr<IValueExpression> right_;
     std::string output_name_;
-    Column column_;
+    Type type_;
 
 public:
     Sub(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right);
 
-    const Column* evaluate(const Batch& batch) override;
+    Column evaluate(const Batch& batch) override;
 
     Type output_type() const override;
 };
@@ -89,12 +89,12 @@ public:
 private:
     std::unique_ptr<IValueExpression> target_;
     ExtractSpec spec_;
-    Column column_;
+    Type type_;
 
 public:
     Extract(std::unique_ptr<IValueExpression>&& target, ExtractSpec spec);
 
-    const Column* evaluate(const Batch& batch) override;
+    Column evaluate(const Batch& batch) override;
 
     Type output_type() const override;
 };
@@ -102,12 +102,12 @@ public:
 class StrLen : public IValueExpression {
 private:
     std::unique_ptr<IValueExpression> target_;
-    Column column_;
+    Type type_;
 
 public:
     StrLen(std::unique_ptr<IValueExpression>&& target);
 
-    const Column* evaluate(const Batch& batch) override;
+    Column evaluate(const Batch& batch) override;
 
     Type output_type() const override;
 };
@@ -124,12 +124,12 @@ private:
     std::unique_ptr<IValueExpression> target_;
     TruncSpec spec_;
     std::string output_name_;
-    Column column_;
+    Type type_;
 
 public:
     DateTrunc(std::unique_ptr<IValueExpression>&& target, TruncSpec spec);
 
-    const Column* evaluate(const Batch& batch) override;
+    Column evaluate(const Batch& batch) override;
 
     Type output_type() const override;
 };
@@ -140,13 +140,13 @@ private:
     std::string replacement_;
     re2::RE2 pattern_;
     std::string output_name_;
-    Column column_;
+    Type type_;
 
 public:
     RegexpReplace(std::unique_ptr<IValueExpression>&& target, const std::string& pattern,
                   const std::string& replacement);
 
-    const Column* evaluate(const Batch& batch) override;
+    Column evaluate(const Batch& batch) override;
 
     Type output_type() const override;
 };
@@ -156,13 +156,15 @@ private:
     std::unique_ptr<IFilterExpression> condition_;
     std::unique_ptr<IValueExpression> then_;
     std::unique_ptr<IValueExpression> else_;
-    Column column_;
+    Type type_;
 
 public:
     CaseWhen(std::unique_ptr<IFilterExpression>&& cond, std::unique_ptr<IValueExpression>&& th,
              std::unique_ptr<IValueExpression>&& el);
 
-    const Column* evaluate(const Batch& batch) override;
+    ~CaseWhen() override;
+
+    Column evaluate(const Batch& batch) override;
 
     Type output_type() const override;
 };
@@ -218,7 +220,6 @@ public:
             std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__ << "\n  in "
                       << __func__ << std::endl;
             std::abort();
-            break;
         }
     }
 

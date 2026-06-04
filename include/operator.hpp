@@ -1,7 +1,9 @@
 #pragma once
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/container/inlined_vector.h>
 #include <absl/hash/hash.h>
+#include <cstdint>
 #include <memory>
 
 #include "aggregate.hpp"
@@ -39,7 +41,7 @@ class GlobalAggOperator : public IOperator {
 private:
     std::unique_ptr<IOperator> child_;
     std::vector<AggSpec> specs_;
-    std::vector<AggStatePtr> states_;
+    std::vector<AggState> states_;
     Batch result_batch_;
     Schema result_schema_;
     bool done_ = false;
@@ -71,7 +73,7 @@ private:
 
 class GroupByAggOperator : public IOperator {
     struct GroupKey {
-        std::vector<int64_t> values;
+        absl::InlinedVector<int64_t, 2> values;
 
         bool operator==(const GroupKey& other) const {
             return values == other.values;
@@ -81,7 +83,7 @@ class GroupByAggOperator : public IOperator {
     struct KeyHash {
         size_t operator()(const GroupKey& key) const {
             size_t seed = 0;
-            for (int64_t v : key.values) {
+            for (const auto& v : key.values) {
                 seed ^=
                     absl::Hash<int64_t>{}(v) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
             }
@@ -112,7 +114,7 @@ private:
     std::vector<std::unique_ptr<IValueExpression>> group_exprs_;
     std::vector<AggSpec> specs_;
 
-    absl::flat_hash_map<GroupKey, std::vector<AggStatePtr>, KeyHash> groups_;
+    absl::flat_hash_map<GroupKey, std::vector<AggState>, KeyHash> groups_;
 
     absl::flat_hash_map<std::string, int64_t> str_to_id_;
     Column id_to_str_;
