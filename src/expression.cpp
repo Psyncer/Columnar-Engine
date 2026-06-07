@@ -15,22 +15,24 @@ ColumnRef::ColumnRef(const std::string& name, std::unique_ptr<IValueExpression>&
     : name_(name), expr_(std::move(expr)) {
 }
 
-const Column* ColumnRef::evaluate(const Batch& batch) {
+Column ColumnRef::evaluate(const Batch& batch) {
     if (expr_ != nullptr) {
-        const Column* column = expr_->evaluate(batch);
-        column_ = Column(*column);
-        return &column_;
+        Column column(expr_->evaluate(batch));
+        type_ = column.type();
+        return column;
     }
 
     if (!batch.schema_.contains(name_) && name_ == "*") {
-        column_ = Column(Type::Int64, -1);
-        return &column_;
+        Column column(Type::Int64, -1);
+        type_ = column.type();
+        return column;
     }
 
     size_t idx = batch.schema_.get_column_index(name_);
-    column_ = Column(batch.get_column_by_idx(idx));
+    Column column(batch.get_column_by_idx(idx));
+    type_ = column.type();
 
-    return &column_;
+    return column;
 }
 
 std::string ColumnRef::name() const {
@@ -38,65 +40,68 @@ std::string ColumnRef::name() const {
 }
 
 Type ColumnRef::output_type() const {
-    return column_.type();
+    return type_;;
 }
 
-const Column* Literal::evaluate([[maybe_unused]] const Batch& batch) {
+Column Literal::evaluate([[maybe_unused]] const Batch& batch) {
     if (std::holds_alternative<std::string>(literal_)) {
-        column_ = Column(Type::String, -1, std::get<std::string>(literal_));
-        return &column_;
+        Column column(Type::String, -1, std::get<std::string>(literal_));
+        type_ = column.type();
+        return column;
     }
 
-    column_ = Column(Type::Int64, -1, std::get<int64_t>(literal_));
+    Column column(Type::Int64, -1, std::get<int64_t>(literal_));
+    type_ = column.type();
 
-    return &column_;
+    return column;
 }
 
 Type Literal::output_type() const {
-    return column_.type();
+    return type_;
 }
 
 Add::Add(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right)
     : left_(std::move(left)), right_(std::move(right)) {
 }
 
-const Column* Add::evaluate(const Batch& batch) {
-    const Column* left = left_->evaluate(batch);
-    const Column* right = right_->evaluate(batch);  // assuming literal int64_t
+Column Add::evaluate(const Batch& batch) {
+    Column left(left_->evaluate(batch));
+    Column right(right_->evaluate(batch));  // assuming literal int64_t
 
     // ASS types and sizes
 
-    column_ = Column(left->type(), left->index());
+    Column column(left.type(), left.index());
+    type_ = column.type();
 
-    switch (column_.type()) {
+    switch (column.type()) {
     case Type::Int16:
-        for (size_t i = 0; i < left->size(); ++i) {
-            column_.push_value<int16_t>(
-                static_cast<int16_t>(left->get_value<int16_t>(i) + right->get_value<int64_t>(i)));
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int16_t>(
+                static_cast<int16_t>(left.get_value<int16_t>(i) + right.get_value<int64_t>(i)));
         }
         break;
     case Type::Int32:
-        for (size_t i = 0; i < left->size(); ++i) {
-            column_.push_value<int32_t>(
-                static_cast<int32_t>(left->get_value<int32_t>(i) + right->get_value<int64_t>(i)));
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int32_t>(
+                static_cast<int32_t>(left.get_value<int32_t>(i) + right.get_value<int64_t>(i)));
         }
         break;
     case Type::Int64:
-        for (size_t i = 0; i < left->size(); ++i) {
-            column_.push_value<int64_t>(
-                static_cast<int64_t>(left->get_value<int64_t>(i) + right->get_value<int64_t>(i)));
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int64_t>(
+                static_cast<int64_t>(left.get_value<int64_t>(i) + right.get_value<int64_t>(i)));
         }
         break;
     case Type::Date:
-        for (size_t i = 0; i < left->size(); ++i) {
-            column_.push_value<int32_t>(
-                static_cast<int32_t>(left->get_value<int32_t>(i) + right->get_value<int64_t>(i)));
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int32_t>(
+                static_cast<int32_t>(left.get_value<int32_t>(i) + right.get_value<int64_t>(i)));
         }
         break;
     case Type::Timestamp:
-        for (size_t i = 0; i < left->size(); ++i) {
-            column_.push_value<int64_t>(
-                static_cast<int64_t>(left->get_value<int64_t>(i) + right->get_value<int64_t>(i)));
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int64_t>(
+                static_cast<int64_t>(left.get_value<int64_t>(i) + right.get_value<int64_t>(i)));
         }
         break;
     default:
@@ -106,54 +111,55 @@ const Column* Add::evaluate(const Batch& batch) {
         break;
     }
 
-    return &column_;
+    return column;
 }
 
 Type Add::output_type() const {
-    return column_.type();
+    return type_;
 }
 
 Sub::Sub(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpression>&& right)
     : left_(std::move(left)), right_(std::move(right)) {
 }
 
-const Column* Sub::evaluate(const Batch& batch) {
-    const Column* left = left_->evaluate(batch);
-    const Column* right = right_->evaluate(batch);  // assuming literal int64_t
+Column Sub::evaluate(const Batch& batch) {
+    Column left(left_->evaluate(batch));
+    Column right(right_->evaluate(batch));  // assuming literal int64_t
 
     // ASS types and sizes
 
-    column_ = Column(left->type(), left->index());
+    Column column(left.type(), left.index());
+    type_ = column.type();
 
-    switch (column_.type()) {
+    switch (column.type()) {
     case Type::Int16:
-        for (size_t i = 0; i < left->size(); ++i) {
-            column_.push_value<int16_t>(
-                static_cast<int16_t>(left->get_value<int16_t>(i) - right->get_value<int64_t>(i)));
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int16_t>(
+                static_cast<int16_t>(left.get_value<int16_t>(i) - right.get_value<int64_t>(i)));
         }
         break;
     case Type::Int32:
-        for (size_t i = 0; i < left->size(); ++i) {
-            column_.push_value<int32_t>(
-                static_cast<int32_t>(left->get_value<int32_t>(i) - right->get_value<int64_t>(i)));
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int32_t>(
+                static_cast<int32_t>(left.get_value<int32_t>(i) - right.get_value<int64_t>(i)));
         }
         break;
     case Type::Int64:
-        for (size_t i = 0; i < left->size(); ++i) {
-            column_.push_value<int64_t>(
-                static_cast<int64_t>(left->get_value<int64_t>(i) - right->get_value<int64_t>(i)));
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int64_t>(
+                static_cast<int64_t>(left.get_value<int64_t>(i) - right.get_value<int64_t>(i)));
         }
         break;
     case Type::Date:
-        for (size_t i = 0; i < left->size(); ++i) {
-            column_.push_value<int32_t>(
-                static_cast<int32_t>(left->get_value<int32_t>(i) - right->get_value<int64_t>(i)));
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int32_t>(
+                static_cast<int32_t>(left.get_value<int32_t>(i) - right.get_value<int64_t>(i)));
         }
         break;
     case Type::Timestamp:
-        for (size_t i = 0; i < left->size(); ++i) {
-            column_.push_value<int64_t>(
-                static_cast<int64_t>(left->get_value<int64_t>(i) - right->get_value<int64_t>(i)));
+        for (size_t i = 0; i < left.size(); ++i) {
+            column.push_value<int64_t>(
+                static_cast<int64_t>(left.get_value<int64_t>(i) - right.get_value<int64_t>(i)));
         }
         break;
     default:
@@ -163,106 +169,103 @@ const Column* Sub::evaluate(const Batch& batch) {
         break;
     }
 
-    return &column_;
+    return column;
 }
 
 Type Sub::output_type() const {
-    return column_.type();
+    return type_;
 }
 
 Extract::Extract(std::unique_ptr<IValueExpression>&& target, ExtractSpec spec)
     : target_(std::move(target)), spec_(spec) {
 }
 
-const Column* Extract::evaluate(const Batch& batch) {
-    const Column* column = target_->evaluate(batch);
+Column Extract::evaluate(const Batch& batch) {
+    Column column(target_->evaluate(batch));
     // ASS timestamp type
-    Column extracted(Type::Int64, column->index());
+    Column col(Type::Int64, column.index());
+    type_ = col.type();
 
     switch (spec_) {
     case ExtractSpec::second:
-        for (size_t i = 0; i < column->size(); ++i) {
-            extracted.push_value<int64_t>(column->get_value<int64_t>(i) % 60);
+        for (size_t i = 0; i < column.size(); ++i) {
+            col.push_value<int64_t>(column.get_value<int64_t>(i) % 60);
         }
         break;
     case ExtractSpec::minute:
-        for (size_t i = 0; i < column->size(); ++i) {
-            extracted.push_value<int64_t>((column->get_value<int64_t>(i) / 60) % 60);
+        for (size_t i = 0; i < column.size(); ++i) {
+            col.push_value<int64_t>((column.get_value<int64_t>(i) / 60) % 60);
         }
         break;
     case ExtractSpec::hour:
-        for (size_t i = 0; i < column->size(); ++i) {
-            extracted.push_value<int64_t>((column->get_value<int64_t>(i) / 3600) % 24);
+        for (size_t i = 0; i < column.size(); ++i) {
+            col.push_value<int64_t>((column.get_value<int64_t>(i) / 3600) % 24);
         }
         break;
     }
 
-    column_ = std::move(extracted);
-
-    return &column_;
+    return col;
 }
 
 Type Extract::output_type() const {
-    return column_.type();
+    return type_;
 }
 
 StrLen::StrLen(std::unique_ptr<IValueExpression>&& target) : target_(std::move(target)) {
 }
 
-const Column* StrLen::evaluate(const Batch& batch) {
-    const Column* column = target_->evaluate(batch);
+Column StrLen::evaluate(const Batch& batch) {
+    Column column(target_->evaluate(batch));
     // ASS string column
 
-    Column extracted(Type::Int32, -1);
+    Column col(Type::Int32, -1);
+    type_ = col.type();
 
-    for (size_t i = 0; i < column->size(); ++i) {
-        extracted.push_value<int32_t>(static_cast<int32_t>(column->get_string(i).size()));
+    for (size_t i = 0; i < column.size(); ++i) {
+        col.push_value<int32_t>(static_cast<int32_t>(column.get_string(i).size()));
     }
 
-    column_ = std::move(extracted);
-
-    return &column_;
+    return col;
 }
 
 Type StrLen::output_type() const {
-    return column_.type();
+    return type_;
 }
 
 DateTrunc::DateTrunc(std::unique_ptr<IValueExpression>&& target, TruncSpec spec)
     : target_(std::move(target)), spec_(spec) {
 }
 
-const Column* DateTrunc::evaluate(const Batch& batch) {
-    const Column* column = target_->evaluate(batch);
+Column DateTrunc::evaluate(const Batch& batch) {
+    Column column(target_->evaluate(batch));
     // ASS timestamp column
 
-    Column truncated(Type::Timestamp, column->index());
+    Column col(Type::Timestamp, column.index());
+    type_ = col.type();
 
     switch (spec_) {
     case TruncSpec::second:
-        for (size_t i = 0; i < column->size(); ++i) {
-            truncated.push_value<int64_t>(column->get_value<int64_t>(i));
+        for (size_t i = 0; i < column.size(); ++i) {
+            col.push_value<int64_t>(column.get_value<int64_t>(i));
         }
         break;
     case TruncSpec::minute:
-        for (size_t i = 0; i < column->size(); ++i) {
-            truncated.push_value<int64_t>((column->get_value<int64_t>(i) / 60) * 60);
+        for (size_t i = 0; i < column.size(); ++i) {
+            col.push_value<int64_t>((column.get_value<int64_t>(i) / 60) * 60);
         }
         break;
     case TruncSpec::hour:
-        for (size_t i = 0; i < column->size(); ++i) {
-            truncated.push_value<int64_t>((column->get_value<int64_t>(i) / 3600) * 3600);
+        for (size_t i = 0; i < column.size(); ++i) {
+            col.push_value<int64_t>((column.get_value<int64_t>(i) / 3600) * 3600);
         }
         break;
     }
 
-    column_ = std::move(truncated);
-
-    return &column_;
+    return col;
 }
 
 Type DateTrunc::output_type() const {
-    return column_.type();
+    return type_;
 }
 
 RegexpReplace::RegexpReplace(std::unique_ptr<IValueExpression>&& target, const std::string& pattern,
@@ -270,26 +273,25 @@ RegexpReplace::RegexpReplace(std::unique_ptr<IValueExpression>&& target, const s
     : target_(std::move(target)), replacement_(replacement), pattern_(pattern) {
 }
 
-const Column* RegexpReplace::evaluate(const Batch& batch) {
-    const Column* column = target_->evaluate(batch);
+Column RegexpReplace::evaluate(const Batch& batch) {
+    Column column(target_->evaluate(batch));
     // ASS string column
 
-    Column replaced(Type::String, column->index());
+    Column col(Type::String, column.index());
+    type_ = col.type();
     std::string str;
 
-    for (size_t i = 0; i < column->size(); ++i) {
-        str = column->get_string(i);
+    for (size_t i = 0; i < column.size(); ++i) {
+        str = column.get_string(i);
         RE2::GlobalReplace(&str, pattern_, replacement_);
-        replaced.push_string(str);
+        col.push_string(str);
     }
 
-    column_ = std::move(replaced);
-
-    return &column_;
+    return col;
 }
 
 Type RegexpReplace::output_type() const {
-    return column_.type();
+    return type_;
 }
 
 CaseWhen::CaseWhen(std::unique_ptr<IFilterExpression>&& condition,
@@ -298,76 +300,79 @@ CaseWhen::CaseWhen(std::unique_ptr<IFilterExpression>&& condition,
     : condition_(std::move(condition)), then_(std::move(then)), else_(std::move(els)) {
 }
 
-const Column* CaseWhen::evaluate(const Batch& batch) {
+CaseWhen::~CaseWhen() = default;
+
+Column CaseWhen::evaluate(const Batch& batch) {
     std::vector<uint8_t> mask(batch.row_count_, 1);
     condition_->evaluate(batch, mask);
-    const Column* then = then_->evaluate(batch);
-    const Column* els = else_->evaluate(batch);
+    Column then(then_->evaluate(batch));
+    Column els(else_->evaluate(batch));
 
-    column_ = Column(then->type(), then->index());
+    Column column(then.type(), then.index());
+    type_ = column.type();
 
-    switch (column_.type()) {
+    switch (column.type()) {
     case Type::Int16:
         for (size_t i = 0; i < mask.size(); ++i) {
             if (mask[i] == 1) {
-                column_.push_value<int16_t>(then->get_value<int16_t>(i));
+                column.push_value<int16_t>(then.get_value<int16_t>(i));
             } else {
-                column_.push_value<int16_t>(els->get_value<int16_t>(i));
+                column.push_value<int16_t>(els.get_value<int16_t>(i));
             }
         }
         break;
     case Type::Int32:
         for (size_t i = 0; i < mask.size(); ++i) {
             if (mask[i] == 1) {
-                column_.push_value<int32_t>(then->get_value<int32_t>(i));
+                column.push_value<int32_t>(then.get_value<int32_t>(i));
             } else {
-                column_.push_value<int32_t>(els->get_value<int32_t>(i));
+                column.push_value<int32_t>(els.get_value<int32_t>(i));
             }
         }
         break;
     case Type::Int64:
         for (size_t i = 0; i < mask.size(); ++i) {
             if (mask[i] == 1) {
-                column_.push_value<int64_t>(then->get_value<int64_t>(i));
+                column.push_value<int64_t>(then.get_value<int64_t>(i));
             } else {
-                column_.push_value<int64_t>(els->get_value<int64_t>(i));
+                column.push_value<int64_t>(els.get_value<int64_t>(i));
             }
         }
         break;
     case Type::String:
         for (size_t i = 0; i < mask.size(); ++i) {
             if (mask[i] == 1) {
-                column_.push_string(then->get_string(i));
+                column.push_string(then.get_string(i));
             } else {
-                column_.push_string(els->get_string(i));
+                column.push_string(els.get_string(i));
             }
         }
         break;
     case Type::Date:
         for (size_t i = 0; i < mask.size(); ++i) {
             if (mask[i] == 1) {
-                column_.push_value<int32_t>(then->get_value<int32_t>(i));
+                column.push_value<int32_t>(then.get_value<int32_t>(i));
             } else {
-                column_.push_value<int32_t>(els->get_value<int32_t>(i));
+                column.push_value<int32_t>(els.get_value<int32_t>(i));
             }
         }
         break;
     case Type::Timestamp:
         for (size_t i = 0; i < mask.size(); ++i) {
             if (mask[i] == 1) {
-                column_.push_value<int64_t>(then->get_value<int64_t>(i));
+                column.push_value<int64_t>(then.get_value<int64_t>(i));
             } else {
-                column_.push_value<int64_t>(els->get_value<int64_t>(i));
+                column.push_value<int64_t>(els.get_value<int64_t>(i));
             }
         }
         break;
     }
 
-    return &column_;
+    return column;
 }
 
 Type CaseWhen::output_type() const {
-    return column_.type();
+    return type_;
 }
 
 Compare::Compare(std::unique_ptr<IValueExpression>&& left,
@@ -376,29 +381,29 @@ Compare::Compare(std::unique_ptr<IValueExpression>&& left,
 }
 
 void Compare::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
-    const Column* left = left_->evaluate(batch);
-    const Column* right = right_->evaluate(batch);
+    Column left(left_->evaluate(batch));
+    Column right(right_->evaluate(batch));
 
     // ASS same type for left and right
 
-    switch (left->type()) {
+    switch (left.type()) {
     case Type::Int16:
-        dispatch_int_comparator<int16_t>(*left, *right, mask);
+        dispatch_int_comparator<int16_t>(left, right, mask);
         break;
     case Type::Int32:
-        dispatch_int_comparator<int32_t>(*left, *right, mask);
+        dispatch_int_comparator<int32_t>(left, right, mask);
         break;
     case Type::Int64:
-        dispatch_int_comparator<int64_t>(*left, *right, mask);
+        dispatch_int_comparator<int64_t>(left, right, mask);
         break;
     case Type::String:
-        dispatch_string_comparator(*left, *right, mask, cmp_);
+        dispatch_string_comparator(left, right, mask, cmp_);
         break;
     case Type::Date:
-        dispatch_int_comparator<int32_t>(*left, *right, mask);
+        dispatch_int_comparator<int32_t>(left, right, mask);
         break;
     case Type::Timestamp:
-        dispatch_int_comparator<int64_t>(*left, *right, mask);
+        dispatch_int_comparator<int64_t>(left, right, mask);
         break;
     }
 }
@@ -467,12 +472,12 @@ Like::Like(std::unique_ptr<IValueExpression>&& column, const std::string& str)
 }
 
 void Like::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
-    const Column* column = column_->evaluate(batch);
-    for (size_t i = 0; i < column->size(); ++i) {
+    Column column(column_->evaluate(batch));
+    for (size_t i = 0; i < column.size(); ++i) {
         if (mask[i] == 0) {
             continue;
         }
-        mask[i] &= static_cast<int>(RE2::FullMatch(column->get_string(i), pattern_));
+        mask[i] &= static_cast<int>(RE2::FullMatch(column.get_string(i), pattern_));
     }
 }
 
@@ -517,12 +522,12 @@ NotLike::NotLike(std::unique_ptr<IValueExpression>&& column, const std::string& 
 }
 
 void NotLike::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
-    const Column* column = column_->evaluate(batch);
-    for (size_t i = 0; i < column->size(); ++i) {
+    Column column(column_->evaluate(batch));
+    for (size_t i = 0; i < column.size(); ++i) {
         if (mask[i] == 0) {
             continue;
         }
-        mask[i] &= static_cast<int>(RE2::FullMatch(column->get_string(i), pattern_));
+        mask[i] &= static_cast<int>(RE2::FullMatch(column.get_string(i), pattern_));
     }
 }
 
@@ -567,14 +572,14 @@ In::In(std::unique_ptr<IValueExpression>&& column, const std::vector<int>& set)
 }
 
 void In::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
-    const Column* column = column_->evaluate(batch);
+    Column column(column_->evaluate(batch));
     mask.assign(mask.size(), 0);
 
-    switch (column->type()) {
+    switch (column.type()) {
     case Type::Int16:
-        for (size_t i = 0; i < column->size(); ++i) {
+        for (size_t i = 0; i < column.size(); ++i) {
             for (size_t j = 0; j < set_.size(); ++j) {
-                if (column->get_value<int16_t>(i) == set_[j]) {
+                if (column.get_value<int16_t>(i) == set_[j]) {
                     mask[i] = 1;
                     break;
                 }
@@ -582,9 +587,9 @@ void In::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
         }
         break;
     case Type::Int32:
-        for (size_t i = 0; i < column->size(); ++i) {
+        for (size_t i = 0; i < column.size(); ++i) {
             for (size_t j = 0; j < set_.size(); ++j) {
-                if (column->get_value<int32_t>(i) == set_[j]) {
+                if (column.get_value<int32_t>(i) == set_[j]) {
                     mask[i] = 1;
                     break;
                 }
@@ -592,9 +597,9 @@ void In::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
         }
         break;
     case Type::Int64:
-        for (size_t i = 0; i < column->size(); ++i) {
+        for (size_t i = 0; i < column.size(); ++i) {
             for (size_t j = 0; j < set_.size(); ++j) {
-                if (column->get_value<int64_t>(i) == set_[j]) {
+                if (column.get_value<int64_t>(i) == set_[j]) {
                     mask[i] = 1;
                     break;
                 }
@@ -602,9 +607,9 @@ void In::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
         }
         break;
     case Type::Date:
-        for (size_t i = 0; i < column->size(); ++i) {
+        for (size_t i = 0; i < column.size(); ++i) {
             for (size_t j = 0; j < set_.size(); ++j) {
-                if (column->get_value<int32_t>(i) == set_[j]) {
+                if (column.get_value<int32_t>(i) == set_[j]) {
                     mask[i] = 1;
                     break;
                 }
@@ -612,9 +617,9 @@ void In::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
         }
         break;
     case Type::Timestamp:
-        for (size_t i = 0; i < column->size(); ++i) {
+        for (size_t i = 0; i < column.size(); ++i) {
             for (size_t j = 0; j < set_.size(); ++j) {
-                if (column->get_value<int64_t>(i) == set_[j]) {
+                if (column.get_value<int64_t>(i) == set_[j]) {
                     mask[i] = 1;
                     break;
                 }

@@ -121,8 +121,7 @@ public:
     }
 
     Column(const Column& other)
-        : capacity_(other.capacity_), head_(other.head_),
-          type_(other.type_), idx_(other.idx_) {
+        : capacity_(other.capacity_), head_(other.head_), type_(other.type_), idx_(other.idx_) {
         switch (type_) {
         case Type::Int16: {
             allocate<int16_t>();

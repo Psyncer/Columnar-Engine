@@ -41,7 +41,7 @@ private:
     size_t row_count_ = 0;
 
 public:
-    ConversionBatch(const Schema& schema, size_t capacity = kConversionBatchCapacity);  // throws
+    ConversionBatch(const Schema& schema);  // throws
 
     void add_row(const std::vector<std::string>& row);  // throws
 

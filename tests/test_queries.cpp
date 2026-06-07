@@ -52,6 +52,12 @@ struct QueryBuilder {
         return std::make_unique<LimitOperator>(std::move(child), n, offset);
     }
 
+    static std::unique_ptr<IOperator> top_k(std::unique_ptr<IOperator>&& child,
+                                            std::vector<TopKOperator::OrderSpec> specs, int64_t n,
+                                            size_t offset = 0) {
+        return std::make_unique<TopKOperator>(std::move(child), std::move(specs), n, offset);
+    }
+
     static std::unique_ptr<IOperator> having(std::unique_ptr<IOperator>&& child,
                                              std::unique_ptr<IFilterExpression>&& filter) {
         return std::make_unique<HavingOperator>(std::move(child), std::move(filter));
@@ -150,6 +156,13 @@ auto count_distinct(const std::string& col, std::string alias = "",
                    alias);
 }
 
+auto str_count_distinct(const std::string& col, std::string alias = "",
+                        std::unique_ptr<IValueExpression>&& expr = nullptr) {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::StrCountDistinct, col,
+                   std::make_unique<ColumnRef>(col, std::move(expr)), alias);
+}
+
 auto sum(const std::string& col, std::string alias = "",
          std::unique_ptr<IValueExpression>&& expr = nullptr) {
     alias = (alias == "") ? col : alias;
@@ -162,10 +175,22 @@ auto min(const std::string& col, std::string alias = "",
     return AggSpec(AggType::Min, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
 }
 
+auto str_min(const std::string& col, std::string alias = "",
+             std::unique_ptr<IValueExpression>&& expr = nullptr) {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::StrMin, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
+}
+
 auto max(const std::string& col, std::string alias = "",
          std::unique_ptr<IValueExpression>&& expr = nullptr) {
     alias = (alias == "") ? col : alias;
     return AggSpec(AggType::Max, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
+}
+
+auto str_max(const std::string& col, std::string alias = "",
+             std::unique_ptr<IValueExpression>&& expr = nullptr) {
+    alias = (alias == "") ? col : alias;
+    return AggSpec(AggType::StrMax, col, std::make_unique<ColumnRef>(col, std::move(expr)), alias);
 }
 
 auto avg(const std::string& col, std::string alias = "",
@@ -197,6 +222,16 @@ std::vector<std::unique_ptr<IValueExpression>> make_groups(Ts&&... ts) {
 template <typename... Ts>
 std::vector<OrderByOperator::OrderSpec> order_specs(Ts&&... ts) {
     std::vector<OrderByOperator::OrderSpec> v;
+    v.reserve(sizeof...(Ts));
+
+    (v.emplace_back(std::forward<Ts>(ts)), ...);
+
+    return v;
+}
+
+template <typename... Ts>
+std::vector<TopKOperator::OrderSpec> top_k_specs(Ts&&... ts) {
+    std::vector<TopKOperator::OrderSpec> v;
     v.reserve(sizeof...(Ts));
 
     (v.emplace_back(std::forward<Ts>(ts)), ...);
@@ -335,7 +370,8 @@ void query05(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.global_agg(q.scan({"SearchPhrase"}), make_aggs(count_distinct("SearchPhrase")));
+    auto plan =
+        q.global_agg(q.scan({"SearchPhrase"}), make_aggs(str_count_distinct("SearchPhrase")));
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -416,12 +452,10 @@ void query08(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan =
-        q.limit(q.order_by(q.group_by(q.scan({"RegionID", "UserID"}), make_groups(col("RegionID")),
-                                      make_aggs(count_distinct("UserID", "u"))),
-                           order_specs(OrderByOperator::OrderSpec{
-                               col("u"), OrderByOperator::OrderDirection::Desc})),
-                10);
+    auto plan = q.top_k(
+        q.group_by(q.scan({"RegionID", "UserID"}), make_groups(col("RegionID")),
+                   make_aggs(count_distinct("UserID", "u"))),
+        top_k_specs(TopKOperator::OrderSpec{col("u"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -451,14 +485,12 @@ void query09(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(q.group_by(q.scan({"RegionID", "AdvEngineID", "ResolutionWidth", "UserID"}),
-                              make_groups(col("RegionID")),
-                              make_aggs(sum("AdvEngineID"), count("*", "c"), avg("ResolutionWidth"),
-                                        count_distinct("UserID"))),
-                   order_specs(OrderByOperator::OrderSpec{col("c"),
-                                                          OrderByOperator::OrderDirection::Desc})),
-        10);
+    auto plan = q.top_k(
+        q.group_by(q.scan({"RegionID", "AdvEngineID", "ResolutionWidth", "UserID"}),
+                   make_groups(col("RegionID")),
+                   make_aggs(sum("AdvEngineID"), count("*", "c"), avg("ResolutionWidth"),
+                             count_distinct("UserID"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -485,13 +517,11 @@ void query10(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(q.order_by(q.group_by(q.filter(q.scan({"MobilePhoneModel", "UserID"}),
-                                                       not_equal(col("MobilePhoneModel"), lit(""))),
-                                              make_groups(col("MobilePhoneModel")),
-                                              make_aggs(count_distinct("UserID", "u"))),
-                                   order_specs(OrderByOperator::OrderSpec{
-                                       col("u"), OrderByOperator::OrderDirection::Desc})),
-                        10);
+    auto plan = q.top_k(
+        q.group_by(q.filter(q.scan({"MobilePhoneModel", "UserID"}),
+                            not_equal(col("MobilePhoneModel"), lit(""))),
+                   make_groups(col("MobilePhoneModel")), make_aggs(count_distinct("UserID", "u"))),
+        top_k_specs(TopKOperator::OrderSpec{col("u"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -518,14 +548,12 @@ void query11(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(q.group_by(q.filter(q.scan({"MobilePhone", "MobilePhoneModel", "UserID"}),
-                                       not_equal(col("MobilePhoneModel"), lit(""))),
-                              make_groups(col("MobilePhone"), col("MobilePhoneModel")),
-                              make_aggs(count_distinct("UserID", "u"))),
-                   order_specs(OrderByOperator::OrderSpec{col("u"),
-                                                          OrderByOperator::OrderDirection::Desc})),
-        10);
+    auto plan = q.top_k(
+        q.group_by(q.filter(q.scan({"MobilePhone", "MobilePhoneModel", "UserID"}),
+                            not_equal(col("MobilePhoneModel"), lit(""))),
+                   make_groups(col("MobilePhone"), col("MobilePhoneModel")),
+                   make_aggs(count_distinct("UserID", "u"))),
+        top_k_specs(TopKOperator::OrderSpec{col("u"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -552,13 +580,10 @@ void query12(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(
-            q.group_by(q.filter(q.scan({"SearchPhrase"}), not_equal(col("SearchPhrase"), lit(""))),
-                       make_groups(col("SearchPhrase")), make_aggs(count("*", "c"))),
-            order_specs(
-                OrderByOperator::OrderSpec{col("c"), OrderByOperator::OrderDirection::Desc})),
-        10);
+    auto plan = q.top_k(
+        q.group_by(q.filter(q.scan({"SearchPhrase"}), not_equal(col("SearchPhrase"), lit(""))),
+                   make_groups(col("SearchPhrase")), make_aggs(count("*", "c"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -585,13 +610,11 @@ void query13(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "UserID"}),
-                                                       not_equal(col("SearchPhrase"), lit(""))),
-                                              make_groups(col("SearchPhrase")),
-                                              make_aggs(count_distinct("UserID", "u"))),
-                                   order_specs(OrderByOperator::OrderSpec{
-                                       col("u"), OrderByOperator::OrderDirection::Desc})),
-                        10);
+    auto plan = q.top_k(
+        q.group_by(
+            q.filter(q.scan({"SearchPhrase", "UserID"}), not_equal(col("SearchPhrase"), lit(""))),
+            make_groups(col("SearchPhrase")), make_aggs(count_distinct("UserID", "u"))),
+        top_k_specs(TopKOperator::OrderSpec{col("u"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -618,14 +641,12 @@ void query14(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan =
-        q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchEngineID", "SearchPhrase"}),
-                                               not_equal(col("SearchPhrase"), lit(""))),
-                                      make_groups(col("SearchEngineID"), col("SearchPhrase")),
-                                      make_aggs(count("*", "c"))),
-                           order_specs(OrderByOperator::OrderSpec{
-                               col("c"), OrderByOperator::OrderDirection::Desc})),
-                10);
+    auto plan = q.top_k(
+        q.group_by(q.filter(q.scan({"SearchEngineID", "SearchPhrase"}),
+                            not_equal(col("SearchPhrase"), lit(""))),
+                   make_groups(col("SearchEngineID"), col("SearchPhrase")),
+                   make_aggs(count("*", "c"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -651,11 +672,9 @@ void query15(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(q.order_by(q.group_by(q.scan({"UserID"}), make_groups(col("UserID")),
-                                              make_aggs(count("*", "c"))),
-                                   order_specs(OrderByOperator::OrderSpec{
-                                       col("c"), OrderByOperator::OrderDirection::Desc})),
-                        10);
+    auto plan = q.top_k(
+        q.group_by(q.scan({"UserID"}), make_groups(col("UserID")), make_aggs(count("*", "c"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -681,12 +700,10 @@ void query16(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(q.order_by(q.group_by(q.scan({"UserID", "SearchPhrase"}),
-                                              make_groups(col("UserID"), col("SearchPhrase")),
-                                              make_aggs(count("*", "c"))),
-                                   order_specs(OrderByOperator::OrderSpec{
-                                       col("c"), OrderByOperator::OrderDirection::Desc})),
-                        10);
+    auto plan = q.top_k(
+        q.group_by(q.scan({"UserID", "SearchPhrase"}),
+                   make_groups(col("UserID"), col("SearchPhrase")), make_aggs(count("*", "c"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -740,16 +757,13 @@ void query18(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(q.group_by(q.scan({"UserID", "EventTime", "SearchPhrase"}),
-                              make_groups(
-                                  col("UserID"),
-                                  col("m", extract(col("EventTime"), Extract::ExtractSpec::minute)),
-                                  col("SearchPhrase")),
-                              make_aggs(count("*"))),
-                   order_specs(OrderByOperator::OrderSpec{col("*"),
-                                                          OrderByOperator::OrderDirection::Desc})),
-        10);
+    auto plan = q.top_k(
+        q.group_by(q.scan({"UserID", "EventTime", "SearchPhrase"}),
+                   make_groups(col("UserID"),
+                               col("m", extract(col("EventTime"), Extract::ExtractSpec::minute)),
+                               col("SearchPhrase")),
+                   make_aggs(count("*"))),
+        top_k_specs(TopKOperator::OrderSpec{col("*"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -826,15 +840,12 @@ void query21(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan =
-        q.limit(q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "URL"}),
-                                               and_expr(like(col("URL"), "%google%"),
-                                                        not_equal(col("SearchPhrase"), lit("")))),
-                                      make_groups(col("SearchPhrase")),
-                                      make_aggs(min("URL"), count("*", "c"))),
-                           order_specs(OrderByOperator::OrderSpec{
-                               col("c"), OrderByOperator::OrderDirection::Desc})),
-                10);
+    auto plan = q.top_k(
+        q.group_by(q.filter(q.scan({"SearchPhrase", "URL"}),
+                            and_expr(like(col("URL"), "%google%"),
+                                     not_equal(col("SearchPhrase"), lit("")))),
+                   make_groups(col("SearchPhrase")), make_aggs(str_min("URL"), count("*", "c"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -861,17 +872,15 @@ void query22(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(q.group_by(q.filter(q.scan({"SearchPhrase", "URL", "Title", "UserID"}),
-                                       and_expr(and_expr(like(col("Title"), "%Google%"),
-                                                         not_like(col("URL"), "%.google.%")),
-                                                not_equal(col("SearchPhrase"), lit("")))),
-                              make_groups(col("SearchPhrase")),
-                              make_aggs(min("URL"), min("Title"), count("*", "c"),
-                                        count_distinct("UserID"))),
-                   order_specs(OrderByOperator::OrderSpec{col("c"),
-                                                          OrderByOperator::OrderDirection::Desc})),
-        10);
+    auto plan = q.top_k(
+        q.group_by(
+            q.filter(q.scan({"SearchPhrase", "URL", "Title", "UserID"}),
+                     and_expr(and_expr(like(col("Title"), "%Google%"),
+                                       not_like(col("URL"), "%.google.%")),
+                              not_equal(col("SearchPhrase"), lit("")))),
+            make_groups(col("SearchPhrase")),
+            make_aggs(str_min("URL"), str_min("Title"), count("*", "c"), count_distinct("UserID"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -897,10 +906,10 @@ void query23(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(q.order_by(q.filter(q.scan({"*"}), like(col("URL"), "%google%")),
-                                   order_specs(OrderByOperator::OrderSpec{
-                                       col("EventTime"), OrderByOperator::OrderDirection::Asc})),
-                        10);
+    auto plan = q.top_k(
+        q.filter(q.scan({"*"}), like(col("URL"), "%google%")),
+        top_k_specs(TopKOperator::OrderSpec{col("EventTime"), TopKOperator::OrderDirection::Asc}),
+        10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -926,11 +935,10 @@ void query24(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(q.order_by(q.filter(q.scan({"SearchPhrase", "EventTime"}),
-                                            not_equal(col("SearchPhrase"), lit(""))),
-                                   order_specs(OrderByOperator::OrderSpec{
-                                       col("EventTime"), OrderByOperator::OrderDirection::Asc})),
-                        10);
+    auto plan = q.top_k(
+        q.filter(q.scan({"SearchPhrase", "EventTime"}), not_equal(col("SearchPhrase"), lit(""))),
+        top_k_specs(TopKOperator::OrderSpec{col("EventTime"), TopKOperator::OrderDirection::Asc}),
+        10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -956,11 +964,10 @@ void query25(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(q.filter(q.scan({"SearchPhrase"}), not_equal(col("SearchPhrase"), lit(""))),
-                   order_specs(OrderByOperator::OrderSpec{col("SearchPhrase"),
-                                                          OrderByOperator::OrderDirection::Asc})),
-        10);
+    auto plan = q.top_k(q.filter(q.scan({"SearchPhrase"}), not_equal(col("SearchPhrase"), lit(""))),
+                        top_k_specs(TopKOperator::OrderSpec{col("SearchPhrase"),
+                                                            TopKOperator::OrderDirection::Asc}),
+                        10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -986,13 +993,11 @@ void query26(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(q.filter(q.scan({"SearchPhrase", "EventTime"}),
-                            not_equal(col("SearchPhrase"), lit(""))),
-                   order_specs(OrderByOperator::OrderSpec{col("EventTime"),
-                                                          OrderByOperator::OrderDirection::Asc},
-                               OrderByOperator::OrderSpec{col("SearchPhrase"),
-                                                          OrderByOperator::OrderDirection::Asc})),
+    auto plan = q.top_k(
+        q.filter(q.scan({"SearchPhrase", "EventTime"}), not_equal(col("SearchPhrase"), lit(""))),
+        top_k_specs(
+            TopKOperator::OrderSpec{col("EventTime"), TopKOperator::OrderDirection::Asc},
+            TopKOperator::OrderSpec{col("SearchPhrase"), TopKOperator::OrderDirection::Asc}),
         10);
 
     auto start = std::chrono::steady_clock::now();
@@ -1021,16 +1026,12 @@ void query27(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(
-            q.having(
-                q.group_by(q.filter(q.scan({"CounterID", "URL"}), not_equal(col("URL"), lit(""))),
-                           make_groups(col("CounterID")),
-                           make_aggs(avg("URL", "l", str_len(col("URL"))), count("*", "c"))),
-                greater(col("c"), lit(100000))),
-            order_specs(
-                OrderByOperator::OrderSpec{col("l"), OrderByOperator::OrderDirection::Desc})),
-        25);
+    auto plan = q.top_k(
+        q.having(q.group_by(q.filter(q.scan({"CounterID", "URL"}), not_equal(col("URL"), lit(""))),
+                            make_groups(col("CounterID")),
+                            make_aggs(avg("URL", "l", str_len(col("URL"))), count("*", "c"))),
+                 greater(col("c"), lit(100000))),
+        top_k_specs(TopKOperator::OrderSpec{col("l"), TopKOperator::OrderDirection::Desc}), 25);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -1063,16 +1064,13 @@ void query28(const std::string& columnar_path) {
 
     auto k_expr = regexp_replace(col("Referer"), "^https?://(?:www\\.)?([^/]+)/.*$", "\\1");
 
-    auto plan = q.limit(
-        q.order_by(
-            q.having(q.group_by(q.filter(q.scan({"Referer"}), not_equal(col("Referer"), lit(""))),
-                                make_groups(col("k", std::move(k_expr))),
-                                make_aggs(avg("Referer", "l", str_len(col("Referer"))),
-                                          count("*", "c"), min("Referer"))),
-                     greater(col("c"), lit(100000))),
-            order_specs(
-                OrderByOperator::OrderSpec{col("l"), OrderByOperator::OrderDirection::Desc})),
-        25);
+    auto plan = q.top_k(
+        q.having(q.group_by(q.filter(q.scan({"Referer"}), not_equal(col("Referer"), lit(""))),
+                            make_groups(col("k", std::move(k_expr))),
+                            make_aggs(avg("Referer", "l", str_len(col("Referer"))), count("*", "c"),
+                                      str_min("Referer"))),
+                 greater(col("c"), lit(100000))),
+        top_k_specs(TopKOperator::OrderSpec{col("l"), TopKOperator::OrderDirection::Desc}), 25);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -1215,15 +1213,13 @@ void query30(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(q.group_by(q.filter(q.scan({"SearchEngineID", "ClientIP", "IsRefresh",
-                                               "ResolutionWidth", "SearchPhrase"}),
-                                       not_equal(col("SearchPhrase"), lit(""))),
-                              make_groups(col("SearchEngineID"), col("ClientIP")),
-                              make_aggs(count("*", "c"), sum("IsRefresh"), avg("ResolutionWidth"))),
-                   order_specs(OrderByOperator::OrderSpec{col("c"),
-                                                          OrderByOperator::OrderDirection::Desc})),
-        10);
+    auto plan = q.top_k(
+        q.group_by(q.filter(q.scan({"SearchEngineID", "ClientIP", "IsRefresh", "ResolutionWidth",
+                                    "SearchPhrase"}),
+                            not_equal(col("SearchPhrase"), lit(""))),
+                   make_groups(col("SearchEngineID"), col("ClientIP")),
+                   make_aggs(count("*", "c"), sum("IsRefresh"), avg("ResolutionWidth"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -1250,15 +1246,13 @@ void query31(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(q.group_by(q.filter(q.scan({"WatchID", "ClientIP", "IsRefresh",
-                                               "ResolutionWidth", "SearchPhrase"}),
-                                       not_equal(col("SearchPhrase"), lit(""))),
-                              make_groups(col("WatchID"), col("ClientIP")),
-                              make_aggs(count("*", "c"), sum("IsRefresh"), avg("ResolutionWidth"))),
-                   order_specs(OrderByOperator::OrderSpec{col("c"),
-                                                          OrderByOperator::OrderDirection::Desc})),
-        10);
+    auto plan = q.top_k(
+        q.group_by(q.filter(q.scan({"WatchID", "ClientIP", "IsRefresh", "ResolutionWidth",
+                                    "SearchPhrase"}),
+                            not_equal(col("SearchPhrase"), lit(""))),
+                   make_groups(col("WatchID"), col("ClientIP")),
+                   make_aggs(count("*", "c"), sum("IsRefresh"), avg("ResolutionWidth"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -1284,13 +1278,11 @@ void query32(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(q.group_by(q.scan({"WatchID", "ClientIP", "IsRefresh", "ResolutionWidth"}),
-                              make_groups(col("WatchID"), col("ClientIP")),
-                              make_aggs(count("*", "c"), sum("IsRefresh"), avg("ResolutionWidth"))),
-                   order_specs(OrderByOperator::OrderSpec{col("c"),
-                                                          OrderByOperator::OrderDirection::Desc})),
-        10);
+    auto plan = q.top_k(
+        q.group_by(q.scan({"WatchID", "ClientIP", "IsRefresh", "ResolutionWidth"}),
+                   make_groups(col("WatchID"), col("ClientIP")),
+                   make_aggs(count("*", "c"), sum("IsRefresh"), avg("ResolutionWidth"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -1316,11 +1308,9 @@ void query33(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan = q.limit(
-        q.order_by(q.group_by(q.scan({"URL"}), make_groups(col("URL")), make_aggs(count("*", "c"))),
-                   order_specs(OrderByOperator::OrderSpec{col("c"),
-                                                          OrderByOperator::OrderDirection::Desc})),
-        10);
+    auto plan = q.top_k(
+        q.group_by(q.scan({"URL"}), make_groups(col("URL")), make_aggs(count("*", "c"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -1346,12 +1336,10 @@ void query34(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan =
-        q.limit(q.order_by(q.group_by(q.scan({"URL"}), make_groups(col("one", lit(1)), col("URL")),
-                                      make_aggs(count("*", "c"))),
-                           order_specs(OrderByOperator::OrderSpec{
-                               col("c"), OrderByOperator::OrderDirection::Desc})),
-                10);
+    auto plan = q.top_k(
+        q.group_by(q.scan({"URL"}), make_groups(col("one", lit(1)), col("URL")),
+                   make_aggs(count("*", "c"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -1377,16 +1365,13 @@ void query35(const std::string& columnar_path) {
 
     QueryBuilder q(columnar_path);
 
-    auto plan =
-        q.limit(q.order_by(q.group_by(q.scan({"ClientIP"}),
-                                      make_groups(col("ClientIP"),
-                                                  col("ClientIP_m1", sub(col("ClientIP"), lit(1))),
-                                                  col("ClientIP_m2", sub(col("ClientIP"), lit(2))),
-                                                  col("ClientIP_m3", sub(col("ClientIP"), lit(3)))),
-                                      make_aggs(count("*", "c"))),
-                           order_specs(OrderByOperator::OrderSpec{
-                               col("c"), OrderByOperator::OrderDirection::Desc})),
-                10);
+    auto plan = q.top_k(
+        q.group_by(q.scan({"ClientIP"}),
+                   make_groups(col("ClientIP"), col("ClientIP_m1", sub(col("ClientIP"), lit(1))),
+                               col("ClientIP_m2", sub(col("ClientIP"), lit(2))),
+                               col("ClientIP_m3", sub(col("ClientIP"), lit(3)))),
+                   make_aggs(count("*", "c"))),
+        top_k_specs(TopKOperator::OrderSpec{col("c"), TopKOperator::OrderDirection::Desc}), 10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -1425,14 +1410,12 @@ void query36(const std::string& columnar_path) {
                                    equal(col("DontCountHits"), lit(0)))),
                  and_expr(equal(col("IsRefresh"), lit(0)), not_equal(col("URL"), lit(""))));
 
-    auto plan =
-        q.limit(q.order_by(q.group_by(q.filter(q.scan({"URL", "CounterID", "EventDate",
-                                                       "DontCountHits", "IsRefresh"}),
-                                               std::move(predicate)),
-                                      make_groups(col("URL")), make_aggs(count("*", "PageViews"))),
-                           order_specs(OrderByOperator::OrderSpec{
-                               col("PageViews"), OrderByOperator::OrderDirection::Desc})),
-                10);
+    auto plan = q.top_k(
+        q.group_by(q.filter(q.scan({"URL", "CounterID", "EventDate", "DontCountHits", "IsRefresh"}),
+                            std::move(predicate)),
+                   make_groups(col("URL")), make_aggs(count("*", "PageViews"))),
+        top_k_specs(TopKOperator::OrderSpec{col("PageViews"), TopKOperator::OrderDirection::Desc}),
+        10);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -1471,13 +1454,12 @@ void query37(const std::string& columnar_path) {
                                    equal(col("DontCountHits"), lit(0)))),
                  and_expr(equal(col("IsRefresh"), lit(0)), not_equal(col("Title"), lit(""))));
 
-    auto plan = q.limit(
-        q.order_by(q.group_by(q.filter(q.scan({"Title", "CounterID", "EventDate", "DontCountHits",
-                                               "IsRefresh"}),
-                                       std::move(predicate)),
-                              make_groups(col("Title")), make_aggs(count("*", "PageViews"))),
-                   order_specs(OrderByOperator::OrderSpec{col("PageViews"),
-                                                          OrderByOperator::OrderDirection::Desc})),
+    auto plan = q.top_k(
+        q.group_by(
+            q.filter(q.scan({"Title", "CounterID", "EventDate", "DontCountHits", "IsRefresh"}),
+                     std::move(predicate)),
+            make_groups(col("Title")), make_aggs(count("*", "PageViews"))),
+        top_k_specs(TopKOperator::OrderSpec{col("PageViews"), TopKOperator::OrderDirection::Desc}),
         10);
 
     auto start = std::chrono::steady_clock::now();
@@ -1517,14 +1499,13 @@ void query38(const std::string& columnar_path) {
                                    equal(col("IsRefresh"), lit(0)))),
                  and_expr(not_equal(col("IsLink"), lit(0)), equal(col("IsDownload"), lit(0))));
 
-    auto plan =
-        q.limit(q.order_by(q.group_by(q.filter(q.scan({"URL", "CounterID", "EventDate", "IsRefresh",
-                                                       "IsLink", "IsDownload"}),
-                                               std::move(predicate)),
-                                      make_groups(col("URL")), make_aggs(count("*", "PageViews"))),
-                           order_specs(OrderByOperator::OrderSpec{
-                               col("PageViews"), OrderByOperator::OrderDirection::Desc})),
-                10, 1000);
+    auto plan = q.top_k(
+        q.group_by(
+            q.filter(q.scan({"URL", "CounterID", "EventDate", "IsRefresh", "IsLink", "IsDownload"}),
+                     std::move(predicate)),
+            make_groups(col("URL")), make_aggs(count("*", "PageViews"))),
+        top_k_specs(TopKOperator::OrderSpec{col("PageViews"), TopKOperator::OrderDirection::Desc}),
+        10, 1000);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -1568,16 +1549,14 @@ void query39(const std::string& columnar_path) {
                  and_expr(less_equal(col("EventDate"), lit(parse_date("2013-07-31"))),
                           equal(col("IsRefresh"), lit(0))));
 
-    auto plan = q.limit(
-        q.order_by(
-            q.group_by(q.filter(q.scan({"TraficSourceID", "SearchEngineID", "AdvEngineID",
-                                        "Referer", "URL", "CounterID", "EventDate", "IsRefresh"}),
-                                std::move(predicate)),
-                       make_groups(col("TraficSourceID"), col("SearchEngineID"), col("AdvEngineID"),
-                                   col("Src", std::move(src_expr)), col("Dst", col("URL"))),
-                       make_aggs(count("*", "PageViews"))),
-            order_specs(OrderByOperator::OrderSpec{col("PageViews"),
-                                                   OrderByOperator::OrderDirection::Desc})),
+    auto plan = q.top_k(
+        q.group_by(q.filter(q.scan({"TraficSourceID", "SearchEngineID", "AdvEngineID", "Referer",
+                                    "URL", "CounterID", "EventDate", "IsRefresh"}),
+                            std::move(predicate)),
+                   make_groups(col("TraficSourceID"), col("SearchEngineID"), col("AdvEngineID"),
+                               col("Src", std::move(src_expr)), col("Dst", col("URL"))),
+                   make_aggs(count("*", "PageViews"))),
+        top_k_specs(TopKOperator::OrderSpec{col("PageViews"), TopKOperator::OrderDirection::Desc}),
         10, 1000);
 
     auto start = std::chrono::steady_clock::now();
@@ -1618,14 +1597,13 @@ void query40(const std::string& columnar_path) {
                  and_expr(in(col("TraficSourceID"), {-1, 6}),
                           equal(col("RefererHash"), lit(3594120000172545465LL))));
 
-    auto plan = q.limit(
-        q.order_by(q.group_by(q.filter(q.scan({"URLHash", "EventDate", "CounterID", "IsRefresh",
-                                               "TraficSourceID", "RefererHash"}),
-                                       std::move(predicate)),
-                              make_groups(col("URLHash"), col("EventDate")),
-                              make_aggs(count("*", "PageViews"))),
-                   order_specs(OrderByOperator::OrderSpec{col("PageViews"),
-                                                          OrderByOperator::OrderDirection::Desc})),
+    auto plan = q.top_k(
+        q.group_by(q.filter(q.scan({"URLHash", "EventDate", "CounterID", "IsRefresh",
+                                    "TraficSourceID", "RefererHash"}),
+                            std::move(predicate)),
+                   make_groups(col("URLHash"), col("EventDate")),
+                   make_aggs(count("*", "PageViews"))),
+        top_k_specs(TopKOperator::OrderSpec{col("PageViews"), TopKOperator::OrderDirection::Desc}),
         10, 100);
 
     auto start = std::chrono::steady_clock::now();
@@ -1666,15 +1644,13 @@ void query41(const std::string& columnar_path) {
                  and_expr(equal(col("DontCountHits"), lit(0)),
                           equal(col("URLHash"), lit(2868770270353813622LL))));
 
-    auto plan = q.limit(
-        q.order_by(
-            q.group_by(q.filter(q.scan({"WindowClientWidth", "WindowClientHeight", "CounterID",
-                                        "EventDate", "IsRefresh", "DontCountHits", "URLHash"}),
-                                std::move(predicate)),
-                       make_groups(col("WindowClientWidth"), col("WindowClientHeight")),
-                       make_aggs(count("*", "PageViews"))),
-            order_specs(OrderByOperator::OrderSpec{col("PageViews"),
-                                                   OrderByOperator::OrderDirection::Desc})),
+    auto plan = q.top_k(
+        q.group_by(q.filter(q.scan({"WindowClientWidth", "WindowClientHeight", "CounterID",
+                                    "EventDate", "IsRefresh", "DontCountHits", "URLHash"}),
+                            std::move(predicate)),
+                   make_groups(col("WindowClientWidth"), col("WindowClientHeight")),
+                   make_aggs(count("*", "PageViews"))),
+        top_k_specs(TopKOperator::OrderSpec{col("PageViews"), TopKOperator::OrderDirection::Desc}),
         10, 10000);
 
     auto start = std::chrono::steady_clock::now();
@@ -1715,16 +1691,14 @@ void query42(const std::string& columnar_path) {
 
     auto minute_expr = date_trunc(col("EventTime"), DateTrunc::TruncSpec::minute);
 
-    auto plan =
-        q.limit(q.order_by(q.group_by(q.filter(q.scan({"EventTime", "CounterID", "EventDate",
-                                                       "IsRefresh", "DontCountHits"}),
-                                               std::move(predicate)),
-                                      make_groups(col("M", std::move(minute_expr))),
-                                      make_aggs(count("*", "PageViews"))),
-                           order_specs(OrderByOperator::OrderSpec{
-                               col("M"), OrderByOperator::OrderDirection::Asc})),
+    auto plan = q.top_k(
+        q.group_by(
+            q.filter(q.scan({"EventTime", "CounterID", "EventDate", "IsRefresh", "DontCountHits"}),
+                     std::move(predicate)),
+            make_groups(col("M", std::move(minute_expr))), make_aggs(count("*", "PageViews"))),
+        top_k_specs(TopKOperator::OrderSpec{col("M"), TopKOperator::OrderDirection::Asc}),
 
-                10, 1000);
+        10, 1000);
 
     auto start = std::chrono::steady_clock::now();
     while (Batch* output_batch = plan->next()) {
@@ -1810,8 +1784,10 @@ void run_query(int n, const std::string& columnar_path) {
         query22(columnar_path);
         break;
     case 23:
-        std::cerr << "Query 23 disabled (OOM risk)\n";
-        return;
+        query23(columnar_path);
+        break;
+        // std::cerr << "Query 23 disabled (OOM risk)\n";
+        // return;
     case 24:
         query24(columnar_path);
         break;
@@ -1837,8 +1813,10 @@ void run_query(int n, const std::string& columnar_path) {
         query31(columnar_path);
         break;
     case 32:
-        std::cerr << "Query 32 disabled (OOM risk)\n";
-        return;
+        query32(columnar_path);
+        break;
+        // std::cerr << "Query 32 disabled (OOM risk)\n";
+        // return;
     case 33:
         query33(columnar_path);
         break;
