@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "batch.hpp"
+#include "src/storage/batch.hpp"
 
 namespace columnar {
 

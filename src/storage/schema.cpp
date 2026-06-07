@@ -2,9 +2,9 @@
 #include <string>
 #include <vector>
 
-#include "assert.hpp"
-#include "data_type.hpp"
-#include "schema.hpp"
+#include "tools/assert.hpp"
+#include "src/storage/data_type.hpp"
+#include "src/storage/schema.hpp"
 
 namespace columnar {
 

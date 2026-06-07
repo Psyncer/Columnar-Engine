@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "schema.hpp"
+#include "src/storage/schema.hpp"
 
 namespace columnar {
     

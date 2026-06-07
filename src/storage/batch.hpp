@@ -3,8 +3,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "column.hpp"
-#include "schema.hpp"
+#include "src/storage/column.hpp"
+#include "src/storage/schema.hpp"
 
 namespace columnar {
 
@@ -12,6 +12,7 @@ struct Batch {
     Schema schema_;
     std::vector<Column> columns_;
     std::unordered_map<size_t, size_t> idx_to_pos_;
+    std::unordered_map<size_t, size_t> pos_to_idx_;
     std::vector<size_t> active_rows_;
     size_t column_count_ = 0;
     size_t row_count_ = 0;
@@ -29,6 +30,8 @@ struct Batch {
     Batch& operator=(Batch&& other) noexcept;
 
     const Column& get_column_by_idx(size_t idx) const;
+
+    size_t get_column_index(size_t idx) const;
 
     void clear();
 };

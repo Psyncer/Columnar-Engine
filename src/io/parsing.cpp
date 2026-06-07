@@ -1,9 +1,9 @@
 #include <cstddef>
 #include <string>
 
-#include "assert.hpp"
-#include "data_type.hpp"
-#include "parsing.hpp"
+#include "tools/assert.hpp"
+#include "src/storage/data_type.hpp"
+#include "src/io/parsing.hpp"
 
 namespace columnar {
 

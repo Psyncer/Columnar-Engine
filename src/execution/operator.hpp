@@ -6,10 +6,10 @@
 #include <cstdint>
 #include <memory>
 
-#include "aggregate.hpp"
-#include "batch.hpp"
-#include "columnar_reader.hpp"
-#include "expression.hpp"
+#include "src/execution/aggregate.hpp"
+#include "src/storage/batch.hpp"
+#include "src/io/columnar_reader.hpp"
+#include "src/execution/expression.hpp"
 
 namespace columnar {
 

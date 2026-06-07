@@ -4,12 +4,12 @@
 #include <numeric>
 #include <utility>
 
-#include "aggregate.hpp"
-#include "batch.hpp"
-#include "columnar_reader.hpp"
-#include "data_type.hpp"
-#include "operator.hpp"
-#include "schema.hpp"
+#include "src/execution/aggregate.hpp"
+#include "src/storage/batch.hpp"
+#include "src/io/columnar_reader.hpp"
+#include "src/storage/data_type.hpp"
+#include "src/execution/operator.hpp"
+#include "src/storage/schema.hpp"
 
 namespace columnar {
 
@@ -174,7 +174,7 @@ GroupByAggOperator::GroupByAggOperator(std::unique_ptr<IOperator>&& child,
                                        std::vector<std::unique_ptr<IValueExpression>> group_exprs,
                                        std::vector<AggSpec> specs)
     : child_(std::move(child)), group_exprs_(std::move(group_exprs)), specs_(std::move(specs)),
-      id_to_str_(Type::String, -1) {
+      id_to_str_(Type::String) {
     str_to_id_.reserve(1 << 20);
     groups_.reserve(1 << 20);
 }
@@ -796,7 +796,10 @@ Batch* TopKOperator::next() {
         indices.clear();
     }
 
-    indices.resize(limit_);
+    if (indices.size() > limit_) {
+        indices.resize(limit_);
+    }
+
     accumulated_batch_.row_count_ = indices.size();
 
     return &accumulated_batch_;

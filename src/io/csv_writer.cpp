@@ -2,8 +2,8 @@
 #include <expected>
 #include <string>
 
-#include "batch.hpp"
-#include "csv_writer.hpp"
+#include "src/storage/batch.hpp"
+#include "src/io/csv_writer.hpp"
 
 namespace columnar {
 
@@ -25,7 +25,7 @@ void CsvWriter::write_batch(const Batch& batch) {
     // the ACTUAL number of rows in a batch,
     // need to assert somewhere
 
-    size_t column_count = batch.column_count_;  
+    size_t column_count = batch.column_count_;
 
     for (const auto& row : batch.active_rows_) {
         for (size_t col = 0; col < column_count; ++col) {
@@ -64,7 +64,7 @@ void CsvWriter::write_batch(const Batch& batch) {
                 break;
             }
             }
-            
+
             if (col < column_count - 1) {
                 std::cout << ',';
             }

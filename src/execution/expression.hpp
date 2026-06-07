@@ -4,8 +4,8 @@
 #include <re2/re2.h>
 #include <variant>
 
-#include "batch.hpp"
-#include "column.hpp"
+#include "src/storage/batch.hpp"
+#include "src/storage/column.hpp"
 
 namespace columnar {
 

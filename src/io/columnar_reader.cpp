@@ -5,12 +5,12 @@
 #include <string>
 #include <unistd.h>
 
-#include "assert.hpp"
-#include "batch.hpp"
-#include "chunk_info.hpp"
-#include "columnar_reader.hpp"
-#include "data_type.hpp"
-#include "schema.hpp"
+#include "tools/assert.hpp"
+#include "src/storage/batch.hpp"
+#include "src/storage/chunk_info.hpp"
+#include "src/io/columnar_reader.hpp"
+#include "src/storage/data_type.hpp"
+#include "src/storage/schema.hpp"
 
 namespace columnar {
 
@@ -146,7 +146,7 @@ void ColumnarReader::fill_batch(Batch& batch) {
 
     for (size_t i = 0; i < active_columns; ++i) {
         Type type = batch.columns_[i].type();
-        size_t idx = static_cast<size_t>(batch.columns_[i].index());
+        size_t idx = static_cast<size_t>(batch.get_column_index(i));
         const ChunkInfo& chunk = chunks_[current_row_group_index_ * total_columns + idx];
 
         if (chunk.size_in_bytes > static_cast<int64_t>(kTempBufferSize)) {

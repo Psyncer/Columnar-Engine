@@ -6,9 +6,9 @@
 #include <string>
 #include <vector>
 
-#include "chunk_info.hpp"
-#include "conversion_batch.hpp"
-#include "schema.hpp"
+#include "src/storage/chunk_info.hpp"
+#include "src/storage/conversion_batch.hpp"
+#include "src/storage/schema.hpp"
 
 namespace columnar {
 

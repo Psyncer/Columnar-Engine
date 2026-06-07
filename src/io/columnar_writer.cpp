@@ -4,12 +4,12 @@
 #include <string>
 #include <vector>
 
-#include "assert.hpp"
-#include "chunk_info.hpp"
-#include "columnar_writer.hpp"
-#include "config.hpp"
-#include "conversion_batch.hpp"
-#include "schema.hpp"
+#include "tools/assert.hpp"
+#include "src/storage/chunk_info.hpp"
+#include "src/io/columnar_writer.hpp"
+#include "tools/config.hpp"
+#include "src/storage/conversion_batch.hpp"
+#include "src/storage/schema.hpp"
 
 namespace columnar {
 

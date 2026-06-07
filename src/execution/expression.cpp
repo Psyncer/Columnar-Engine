@@ -6,8 +6,8 @@
 #include <utility>
 #include <variant>
 
-#include "data_type.hpp"
-#include "expression.hpp"
+#include "src/storage/data_type.hpp"
+#include "src/execution/expression.hpp"
 
 namespace columnar {
 
@@ -23,7 +23,7 @@ Column ColumnRef::evaluate(const Batch& batch) {
     }
 
     if (!batch.schema_.contains(name_) && name_ == "*") {
-        Column column(Type::Int64, -1);
+        Column column(Type::Int64);
         type_ = column.type();
         return column;
     }
@@ -45,12 +45,12 @@ Type ColumnRef::output_type() const {
 
 Column Literal::evaluate([[maybe_unused]] const Batch& batch) {
     if (std::holds_alternative<std::string>(literal_)) {
-        Column column(Type::String, -1, std::get<std::string>(literal_));
+        Column column(Type::String, std::get<std::string>(literal_));
         type_ = column.type();
         return column;
     }
 
-    Column column(Type::Int64, -1, std::get<int64_t>(literal_));
+    Column column(Type::Int64, std::get<int64_t>(literal_));
     type_ = column.type();
 
     return column;
@@ -70,7 +70,7 @@ Column Add::evaluate(const Batch& batch) {
 
     // ASS types and sizes
 
-    Column column(left.type(), left.index());
+    Column column(left.type());
     type_ = column.type();
 
     switch (column.type()) {
@@ -128,7 +128,7 @@ Column Sub::evaluate(const Batch& batch) {
 
     // ASS types and sizes
 
-    Column column(left.type(), left.index());
+    Column column(left.type());
     type_ = column.type();
 
     switch (column.type()) {
@@ -183,7 +183,7 @@ Extract::Extract(std::unique_ptr<IValueExpression>&& target, ExtractSpec spec)
 Column Extract::evaluate(const Batch& batch) {
     Column column(target_->evaluate(batch));
     // ASS timestamp type
-    Column col(Type::Int64, column.index());
+    Column col(Type::Int64);
     type_ = col.type();
 
     switch (spec_) {
@@ -218,7 +218,7 @@ Column StrLen::evaluate(const Batch& batch) {
     Column column(target_->evaluate(batch));
     // ASS string column
 
-    Column col(Type::Int32, -1);
+    Column col(Type::Int32);
     type_ = col.type();
 
     for (size_t i = 0; i < column.size(); ++i) {
@@ -240,7 +240,7 @@ Column DateTrunc::evaluate(const Batch& batch) {
     Column column(target_->evaluate(batch));
     // ASS timestamp column
 
-    Column col(Type::Timestamp, column.index());
+    Column col(Type::Timestamp);
     type_ = col.type();
 
     switch (spec_) {
@@ -277,7 +277,7 @@ Column RegexpReplace::evaluate(const Batch& batch) {
     Column column(target_->evaluate(batch));
     // ASS string column
 
-    Column col(Type::String, column.index());
+    Column col(Type::String);
     type_ = col.type();
     std::string str;
 
@@ -308,7 +308,7 @@ Column CaseWhen::evaluate(const Batch& batch) {
     Column then(then_->evaluate(batch));
     Column els(else_->evaluate(batch));
 
-    Column column(then.type(), then.index());
+    Column column(then.type());
     type_ = column.type();
 
     switch (column.type()) {
@@ -527,7 +527,7 @@ void NotLike::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
         if (mask[i] == 0) {
             continue;
         }
-        mask[i] &= static_cast<int>(RE2::FullMatch(column.get_string(i), pattern_));
+        mask[i] &= static_cast<int>(!RE2::FullMatch(column.get_string(i), pattern_));
     }
 }
 

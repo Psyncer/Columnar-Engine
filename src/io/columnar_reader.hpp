@@ -5,9 +5,9 @@
 #include <unistd.h>
 #include <vector>
 
-#include "batch.hpp"
-#include "chunk_info.hpp"
-#include "schema.hpp"
+#include "src/storage/batch.hpp"
+#include "src/storage/chunk_info.hpp"
+#include "src/storage/schema.hpp"
 
 namespace columnar {
 

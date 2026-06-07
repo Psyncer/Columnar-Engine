@@ -5,11 +5,11 @@
 #include <string>
 #include <sys/types.h>
 
-#include "assert.hpp"
-#include "config.hpp"
-#include "csv_reader.hpp"
-#include "parsing.hpp"
-#include "schema.hpp"
+#include "tools/assert.hpp"
+#include "tools/config.hpp"
+#include "src/io/csv_reader.hpp"
+#include "src/io/parsing.hpp"
+#include "src/storage/schema.hpp"
 
 namespace columnar {
 

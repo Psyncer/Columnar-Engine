@@ -5,9 +5,9 @@
 #include <variant>
 #include <vector>
 
-#include "assert.hpp"
-#include "config.hpp"
-#include "schema.hpp"
+#include "tools/assert.hpp"
+#include "tools/config.hpp"
+#include "src/storage/schema.hpp"
 
 namespace columnar {
 

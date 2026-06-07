@@ -1,5 +1,5 @@
-#include "batch.hpp"
-#include "data_type.hpp"
+#include "src/storage/batch.hpp"
+#include "src/storage/data_type.hpp"
 
 namespace columnar {
 
@@ -17,14 +17,15 @@ Batch::Batch(const Schema& schema, const std::vector<std::string>& columns_neede
     for (const auto& name : new_names) {
         size_t idx = schema_.get_column_index(name);
         Type type = schema_.get_column_type(idx);
-        columns_.emplace_back(type, idx);
+        columns_.emplace_back(type);
         idx_to_pos_[idx] = column_count_;
+        pos_to_idx_[column_count_] = idx;
         column_count_++;
     }
 }
 
 Batch::Batch(const Batch& other)
-    : schema_(other.schema_), idx_to_pos_(other.idx_to_pos_), active_rows_(other.active_rows_),
+    : schema_(other.schema_), idx_to_pos_(other.idx_to_pos_), pos_to_idx_(other.pos_to_idx_), active_rows_(other.active_rows_),
       column_count_(other.column_count_), row_count_(other.row_count_) {
 
     columns_.reserve(other.columns_.size());
@@ -40,6 +41,7 @@ Batch::Batch(Batch&& other) noexcept {
     column_count_ = other.column_count_;
     row_count_ = other.row_count_;
     idx_to_pos_ = other.idx_to_pos_;
+    pos_to_idx_ = other.pos_to_idx_;
     active_rows_ = other.active_rows_;
 
     other.column_count_ = 0;
@@ -57,6 +59,7 @@ Batch& Batch::operator=(Batch&& other) noexcept {
     column_count_ = other.column_count_;
     row_count_ = other.row_count_;
     idx_to_pos_ = other.idx_to_pos_;
+    pos_to_idx_ = other.pos_to_idx_;
 
     active_rows_ = other.active_rows_;
 
@@ -69,6 +72,11 @@ Batch& Batch::operator=(Batch&& other) noexcept {
 const Column& Batch::get_column_by_idx(size_t idx) const {
     ASS(idx_to_pos_.contains(idx), "no such index in batch");
     return columns_[idx_to_pos_.at(idx)];
+}
+
+size_t Batch::get_column_index(size_t idx) const {
+    ASS(pos_to_idx_.contains(idx), "no such index in batch");
+    return pos_to_idx_.at(idx);
 }
 
 void Batch::clear() {

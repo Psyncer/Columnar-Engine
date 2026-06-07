@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "data_type.hpp"
+#include "src/storage/data_type.hpp"
 
 namespace columnar {
 

@@ -4,11 +4,11 @@
 #include <variant>
 #include <vector>
 
-#include "assert.hpp"
-#include "conversion_batch.hpp"
-#include "data_type.hpp"
-#include "parsing.hpp"
-#include "schema.hpp"
+#include "tools/assert.hpp"
+#include "src/storage/conversion_batch.hpp"
+#include "src/storage/data_type.hpp"
+#include "src/io/parsing.hpp"
+#include "src/storage/schema.hpp"
 
 namespace columnar {
 
