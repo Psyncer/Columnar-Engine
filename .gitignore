@@ -26,3 +26,4 @@ tests/output.columnar
 tests/hits_sample.csv
 tests/data.csv
 tests/data_reconstructed.csv
+tests/sample.columnar

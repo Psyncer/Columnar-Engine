@@ -12,8 +12,8 @@
 
 namespace columnar {
 
-ConversionBatch::ConversionBatch(const Schema& schema, size_t capacity)
-    : schema_(schema), capacity_(capacity) {
+ConversionBatch::ConversionBatch(const Schema& schema)
+    : schema_(schema) {
     for (size_t i = 0; i < schema_.get_column_count(); ++i) {
         Type type = schema_.get_column_type(i);
 

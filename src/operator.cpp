@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <numeric>
@@ -31,6 +32,10 @@ Batch* ScanOperator::next() {
 
 const Schema& ScanOperator::get_schema() const {
     return schema_;
+}
+
+bool ScanOperator::is_blocking() const {
+    return false;
 }
 
 GlobalAggOperator::GlobalAggOperator(std::unique_ptr<IOperator>&& child, std::vector<AggSpec> specs)
@@ -123,6 +128,10 @@ const Schema& GlobalAggOperator::get_schema() const {
     return result_schema_;
 }
 
+bool GlobalAggOperator::is_blocking() const {
+    return true;
+}
+
 FilterOperator::FilterOperator(std::unique_ptr<IOperator>&& child,
                                std::unique_ptr<IFilterExpression>&& filter)
     : child_(std::move(child)), filter_(std::move(filter)) {
@@ -157,6 +166,10 @@ void FilterOperator::apply_mask(Batch* batch, std::vector<uint8_t>& mask) {
     }
 }
 
+bool FilterOperator::is_blocking() const {
+    return false;
+}
+
 GroupByAggOperator::GroupByAggOperator(std::unique_ptr<IOperator>&& child,
                                        std::vector<std::unique_ptr<IValueExpression>> group_exprs,
                                        std::vector<AggSpec> specs)
@@ -172,15 +185,7 @@ Batch* GroupByAggOperator::next() {
     }
     done_ = true;
 
-    int debug_entry = 0;
-
     while (Batch* batch = child_->next()) {
-
-        if (debug_entry == 0) {
-            std::cout << "ENTERED GROUP BY LOOP" << std::endl;
-            debug_entry = 1;
-        }
-
         std::vector<Column> columns;
         columns.reserve(group_exprs_.size());
 
@@ -334,7 +339,11 @@ const Schema& GroupByAggOperator::get_schema() const {
     return result_schema_;
 }
 
-OrderByOperator::OrderByOperator(std::unique_ptr<IOperator> child,
+bool GroupByAggOperator::is_blocking() const {
+    return true;
+}
+
+OrderByOperator::OrderByOperator(std::unique_ptr<IOperator>&& child,
                                  std::vector<OrderSpec> order_specs)
     : child_(std::move(child)), order_specs_(std::move(order_specs)) {
 }
@@ -345,124 +354,192 @@ Batch* OrderByOperator::next() {
     }
     done_ = true;
 
-    int debug_entry = 0;
-
-    while (Batch* batch = child_->next()) {
-
-        if (debug_entry == 0) {
-            std::cout << "ENTERED ORDER BY" << std::endl;
-            debug_entry = 1;
+    if (child_->is_blocking()) {
+        Batch* batch = child_->next();
+        if (batch == nullptr) {
+            return nullptr;
         }
 
-        if (accumulated_batch_.columns_.empty()) {
-            accumulated_batch_ = Batch(*batch);
-            global_offset_ = accumulated_batch_.columns_[0].size();
-            continue;
-        }
-
-        for (size_t i = 0; i < batch->column_count_; ++i) {
-            switch (accumulated_batch_.columns_[i].type()) {
-            case Type::Int16:
-                accumulated_batch_.columns_[i].emplace_column<int16_t>(
-                    batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int16_t));
-                break;
-            case Type::Int32:
-                accumulated_batch_.columns_[i].emplace_column<int32_t>(
-                    batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int32_t));
-                break;
-            case Type::Int64:
-                accumulated_batch_.columns_[i].emplace_column<int64_t>(
-                    batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int64_t));
-                break;
-            case Type::String:
-                for (size_t row = 0; row < batch->columns_[i].size(); ++row) {
-                    accumulated_batch_.columns_[i].push_string(batch->columns_[i].get_string(row));
-                }
-                break;
-            case Type::Date:
-                accumulated_batch_.columns_[i].emplace_column<int32_t>(
-                    batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int32_t));
-                break;
-            case Type::Timestamp:
-                accumulated_batch_.columns_[i].emplace_column<int64_t>(
-                    batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int64_t));
-                break;
-            }
-        }
-
-        for (const auto& row : batch->active_rows_) {
-            accumulated_batch_.active_rows_.push_back(row + global_offset_);
-        }
-        accumulated_batch_.row_count_ += batch->row_count_;
+        accumulated_batch_ = Batch(*batch);
         global_offset_ = accumulated_batch_.columns_[0].size();
-    }
 
-    std::vector<size_t>& indices = accumulated_batch_.active_rows_;
+        std::vector<size_t>& indices = accumulated_batch_.active_rows_;
 
-    std::vector<Column> order_columns;
-    order_columns.reserve(order_specs_.size());
-    for (const auto& spec : order_specs_) {
-        order_columns.push_back(spec.expr->evaluate(accumulated_batch_));
-    }
-
-    std::sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
-        for (size_t i = 0; i < order_specs_.size(); ++i) {
-            const auto& spec = order_specs_[i];
-            const Column& column = order_columns[i];
-            switch (column.type()) {
-            case Type::Int16: {
-                int16_t va = column.get_value<int16_t>(a);
-                int16_t vb = column.get_value<int16_t>(b);
-                if (va != vb) {
-                    return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
-                }
-                break;
-            }
-            case Type::Int32: {
-                int32_t va = column.get_value<int32_t>(a);
-                int32_t vb = column.get_value<int32_t>(b);
-                if (va != vb) {
-                    return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
-                }
-                break;
-            }
-            case Type::Int64: {
-                int64_t va = column.get_value<int64_t>(a);
-                int64_t vb = column.get_value<int64_t>(b);
-                if (va != vb) {
-                    return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
-                }
-                break;
-            }
-            case Type::String: {
-                std::string stra = column.get_string(a);
-                std::string strb = column.get_string(b);
-                if (stra != strb) {
-                    return spec.dir == OrderDirection::Asc ? stra < strb : stra > strb;
-                }
-                break;
-            }
-            case Type::Date: {
-                int32_t va = column.get_value<int32_t>(a);
-                int32_t vb = column.get_value<int32_t>(b);
-                if (va != vb) {
-                    return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
-                }
-                break;
-            }
-            case Type::Timestamp: {
-                int64_t va = column.get_value<int64_t>(a);
-                int64_t vb = column.get_value<int64_t>(b);
-                if (va != vb) {
-                    return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
-                }
-                break;
-            }
-            }
+        std::vector<Column> order_columns;
+        order_columns.reserve(order_specs_.size());
+        for (const auto& spec : order_specs_) {
+            order_columns.push_back(spec.expr->evaluate(accumulated_batch_));
         }
-        return false;
-    });
 
+        std::sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
+            for (size_t i = 0; i < order_specs_.size(); ++i) {
+                const auto& spec = order_specs_[i];
+                const Column& column = order_columns[i];
+                switch (column.type()) {
+                case Type::Int16: {
+                    int16_t va = column.get_value<int16_t>(a);
+                    int16_t vb = column.get_value<int16_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::Int32: {
+                    int32_t va = column.get_value<int32_t>(a);
+                    int32_t vb = column.get_value<int32_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::Int64: {
+                    int64_t va = column.get_value<int64_t>(a);
+                    int64_t vb = column.get_value<int64_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::String: {
+                    std::string stra = column.get_string(a);
+                    std::string strb = column.get_string(b);
+                    if (stra != strb) {
+                        return spec.dir == OrderDirection::Asc ? stra < strb : stra > strb;
+                    }
+                    break;
+                }
+                case Type::Date: {
+                    int32_t va = column.get_value<int32_t>(a);
+                    int32_t vb = column.get_value<int32_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::Timestamp: {
+                    int64_t va = column.get_value<int64_t>(a);
+                    int64_t vb = column.get_value<int64_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                }
+            }
+            return false;
+        });
+    } else {
+        while (Batch* batch = child_->next()) {
+            if (accumulated_batch_.columns_.empty()) {
+                accumulated_batch_ = Batch(*batch);
+                global_offset_ = accumulated_batch_.columns_[0].size();
+                continue;
+            }
+
+            for (size_t i = 0; i < batch->column_count_; ++i) {
+                switch (accumulated_batch_.columns_[i].type()) {
+                case Type::Int16:
+                    accumulated_batch_.columns_[i].emplace_column<int16_t>(
+                        batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int16_t));
+                    break;
+                case Type::Int32:
+                    accumulated_batch_.columns_[i].emplace_column<int32_t>(
+                        batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int32_t));
+                    break;
+                case Type::Int64:
+                    accumulated_batch_.columns_[i].emplace_column<int64_t>(
+                        batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int64_t));
+                    break;
+                case Type::String:
+                    for (size_t row = 0; row < batch->columns_[i].size(); ++row) {
+                        accumulated_batch_.columns_[i].push_string(
+                            batch->columns_[i].get_string(row));
+                    }
+                    break;
+                case Type::Date:
+                    accumulated_batch_.columns_[i].emplace_column<int32_t>(
+                        batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int32_t));
+                    break;
+                case Type::Timestamp:
+                    accumulated_batch_.columns_[i].emplace_column<int64_t>(
+                        batch->columns_[i].data(), batch->columns_[i].size() * sizeof(int64_t));
+                    break;
+                }
+            }
+
+            for (const auto& row : batch->active_rows_) {
+                accumulated_batch_.active_rows_.push_back(row + global_offset_);
+            }
+            accumulated_batch_.row_count_ += batch->row_count_;
+            global_offset_ = accumulated_batch_.columns_[0].size();
+        }
+
+        std::vector<size_t>& indices = accumulated_batch_.active_rows_;
+
+        std::vector<Column> order_columns;
+        order_columns.reserve(order_specs_.size());
+        for (const auto& spec : order_specs_) {
+            order_columns.push_back(spec.expr->evaluate(accumulated_batch_));
+        }
+
+        std::sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
+            for (size_t i = 0; i < order_specs_.size(); ++i) {
+                const auto& spec = order_specs_[i];
+                const Column& column = order_columns[i];
+                switch (column.type()) {
+                case Type::Int16: {
+                    int16_t va = column.get_value<int16_t>(a);
+                    int16_t vb = column.get_value<int16_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::Int32: {
+                    int32_t va = column.get_value<int32_t>(a);
+                    int32_t vb = column.get_value<int32_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::Int64: {
+                    int64_t va = column.get_value<int64_t>(a);
+                    int64_t vb = column.get_value<int64_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::String: {
+                    std::string stra = column.get_string(a);
+                    std::string strb = column.get_string(b);
+                    if (stra != strb) {
+                        return spec.dir == OrderDirection::Asc ? stra < strb : stra > strb;
+                    }
+                    break;
+                }
+                case Type::Date: {
+                    int32_t va = column.get_value<int32_t>(a);
+                    int32_t vb = column.get_value<int32_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::Timestamp: {
+                    int64_t va = column.get_value<int64_t>(a);
+                    int64_t vb = column.get_value<int64_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                }
+            }
+            return false;
+        });
+    }
     return &accumulated_batch_;
 }
 
@@ -470,12 +547,16 @@ const Schema& OrderByOperator::get_schema() const {
     return child_->get_schema();
 }
 
-LimitOperator::LimitOperator(std::unique_ptr<IOperator> child, size_t len, size_t offset)
-    : child_(std::move(child)), len_(len), offset_(offset) {
+bool OrderByOperator::is_blocking() const {
+    return true;
+}
+
+LimitOperator::LimitOperator(std::unique_ptr<IOperator>&& child, size_t len, size_t offset)
+    : child_(std::move(child)), limit_(len), offset_(offset) {
 }
 
 Batch* LimitOperator::next() {
-    while (len_ > 0) {
+    while (limit_ > 0) {
         Batch* batch = child_->next();
 
         if (batch == nullptr) {
@@ -490,12 +571,12 @@ Batch* LimitOperator::next() {
                 continue;
             }
 
-            if (len_ == 0) {
+            if (limit_ == 0) {
                 break;
             }
 
             new_active_rows.push_back(row);
-            len_--;
+            limit_--;
         }
 
         if (!new_active_rows.empty()) {
@@ -511,7 +592,225 @@ const Schema& LimitOperator::get_schema() const {
     return child_->get_schema();
 }
 
-HavingOperator::HavingOperator(std::unique_ptr<IOperator> child,
+bool LimitOperator::is_blocking() const {
+    return false;
+}
+
+TopKOperator::TopKOperator(std::unique_ptr<IOperator>&& child, std::vector<OrderSpec> order_specs,
+                           size_t len, size_t offset)
+    : child_(std::move(child)), order_specs_(std::move(order_specs)), limit_(len), offset_(offset) {
+}
+
+Batch* TopKOperator::next() {
+    if (done_) {
+        return nullptr;
+    }
+    done_ = true;
+
+    const size_t k = limit_ + offset_;
+
+    bool uninitialized = true;
+
+    while (Batch* batch = child_->next()) {
+        if (uninitialized) {
+            accumulated_batch_ = Batch(*batch);
+            accumulated_batch_.clear();
+            accumulated_batch_.active_rows_.clear();
+            accumulated_batch_.row_count_ = 0;
+            uninitialized = false;
+        }
+
+        std::vector<size_t>& indices = batch->active_rows_;
+
+        std::vector<Column> order_columns;
+        order_columns.reserve(order_specs_.size());
+        for (const auto& spec : order_specs_) {
+            order_columns.push_back(spec.expr->evaluate(*batch));
+        }
+
+        std::partial_sort(
+            indices.begin(), indices.begin() + static_cast<long>(std::min(k, indices.size())),
+            indices.end(), [&](size_t a, size_t b) {
+                for (size_t i = 0; i < order_specs_.size(); ++i) {
+                    const auto& spec = order_specs_[i];
+                    const Column& column = order_columns[i];
+                    switch (column.type()) {
+                    case Type::Int16: {
+                        int16_t va = column.get_value<int16_t>(a);
+                        int16_t vb = column.get_value<int16_t>(b);
+                        if (va != vb) {
+                            return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                        }
+                        break;
+                    }
+                    case Type::Int32: {
+                        int32_t va = column.get_value<int32_t>(a);
+                        int32_t vb = column.get_value<int32_t>(b);
+                        if (va != vb) {
+                            return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                        }
+                        break;
+                    }
+                    case Type::Int64: {
+                        int64_t va = column.get_value<int64_t>(a);
+                        int64_t vb = column.get_value<int64_t>(b);
+                        if (va != vb) {
+                            return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                        }
+                        break;
+                    }
+                    case Type::String: {
+                        std::string stra = column.get_string(a);
+                        std::string strb = column.get_string(b);
+                        if (stra != strb) {
+                            return spec.dir == OrderDirection::Asc ? stra < strb : stra > strb;
+                        }
+                        break;
+                    }
+                    case Type::Date: {
+                        int32_t va = column.get_value<int32_t>(a);
+                        int32_t vb = column.get_value<int32_t>(b);
+                        if (va != vb) {
+                            return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                        }
+                        break;
+                    }
+                    case Type::Timestamp: {
+                        int64_t va = column.get_value<int64_t>(a);
+                        int64_t vb = column.get_value<int64_t>(b);
+                        if (va != vb) {
+                            return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                        }
+                        break;
+                    }
+                    }
+                }
+                return false;
+            });
+
+        for (size_t i = 0; i < std::min(k, indices.size()); ++i) {
+            const size_t& row = indices[i];
+            for (size_t j = 0; j < accumulated_batch_.column_count_; ++j) {
+                switch (accumulated_batch_.columns_[j].type()) {
+                case Type::Int16:
+                    accumulated_batch_.columns_[j].push_value<int16_t>(
+                        batch->columns_[j].get_value<int16_t>(row));
+                    break;
+                case Type::Int32:
+                    accumulated_batch_.columns_[j].push_value<int32_t>(
+                        batch->columns_[j].get_value<int32_t>(row));
+                    break;
+                case Type::Int64:
+                    accumulated_batch_.columns_[j].push_value<int64_t>(
+                        batch->columns_[j].get_value<int64_t>(row));
+                    break;
+                case Type::String:
+                    accumulated_batch_.columns_[j].push_string(batch->columns_[j].get_string(row));
+                    break;
+                case Type::Date:
+                    accumulated_batch_.columns_[j].push_value<int32_t>(
+                        batch->columns_[j].get_value<int32_t>(row));
+                    break;
+                case Type::Timestamp:
+                    accumulated_batch_.columns_[j].push_value<int64_t>(
+                        batch->columns_[j].get_value<int64_t>(row));
+                    break;
+                }
+            }
+            accumulated_batch_.active_rows_.push_back(accumulated_batch_.row_count_);
+            accumulated_batch_.row_count_++;
+        }
+    }
+
+    std::vector<size_t>& indices = accumulated_batch_.active_rows_;
+
+    std::vector<Column> order_columns;
+    order_columns.reserve(order_specs_.size());
+    for (const auto& spec : order_specs_) {
+        order_columns.push_back(spec.expr->evaluate(accumulated_batch_));
+    }
+
+    std::partial_sort(
+        indices.begin(), indices.begin() + static_cast<long>(std::min(k, indices.size())),
+        indices.end(), [&](size_t a, size_t b) {
+            for (size_t i = 0; i < order_specs_.size(); ++i) {
+                const OrderSpec& spec = order_specs_[i];
+                const Column& column = order_columns[i];
+                switch (column.type()) {
+                case Type::Int16: {
+                    int16_t va = column.get_value<int16_t>(a);
+                    int16_t vb = column.get_value<int16_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::Int32: {
+                    int32_t va = column.get_value<int32_t>(a);
+                    int32_t vb = column.get_value<int32_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::Int64: {
+                    int64_t va = column.get_value<int64_t>(a);
+                    int64_t vb = column.get_value<int64_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::String: {
+                    std::string stra = column.get_string(a);
+                    std::string strb = column.get_string(b);
+                    if (stra != strb) {
+                        return spec.dir == OrderDirection::Asc ? stra < strb : stra > strb;
+                    }
+                    break;
+                }
+                case Type::Date: {
+                    int32_t va = column.get_value<int32_t>(a);
+                    int32_t vb = column.get_value<int32_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                case Type::Timestamp: {
+                    int64_t va = column.get_value<int64_t>(a);
+                    int64_t vb = column.get_value<int64_t>(b);
+                    if (va != vb) {
+                        return spec.dir == OrderDirection::Asc ? va < vb : va > vb;
+                    }
+                    break;
+                }
+                }
+            }
+            return false;
+        });
+
+    if (offset_ < indices.size()) {
+        indices.erase(indices.begin(), indices.begin() + static_cast<long>(offset_));
+    } else {
+        indices.clear();
+    }
+
+    indices.resize(limit_);
+    accumulated_batch_.row_count_ = indices.size();
+
+    return &accumulated_batch_;
+}
+
+const Schema& TopKOperator::get_schema() const {
+    return child_->get_schema();
+}
+
+bool TopKOperator::is_blocking() const {
+    return true;
+}
+
+HavingOperator::HavingOperator(std::unique_ptr<IOperator>&& child,
                                std::unique_ptr<IFilterExpression> filter)
     : child_(std::move(child)), filter_(std::move(filter)) {
 }
@@ -543,6 +842,10 @@ void HavingOperator::apply_mask(Batch* batch, std::vector<uint8_t>& mask) {
 
 const Schema& HavingOperator::get_schema() const {
     return child_->get_schema();
+}
+
+bool HavingOperator::is_blocking() const {
+    return false;
 }
 
 }  // namespace columnar

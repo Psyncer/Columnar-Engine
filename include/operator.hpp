@@ -14,13 +14,11 @@
 namespace columnar {
 
 class IOperator {
-protected:
-    Schema global_table_;
-
 public:
     virtual Batch* next() = 0;
     virtual ~IOperator() = default;
     virtual const Schema& get_schema() const = 0;
+    virtual bool is_blocking() const = 0;
 };
 
 class ScanOperator : public IOperator {
@@ -35,6 +33,8 @@ public:
     Batch* next() override;
 
     const Schema& get_schema() const override;
+
+    bool is_blocking() const override;
 };
 
 class GlobalAggOperator : public IOperator {
@@ -52,6 +52,8 @@ public:
     Batch* next() override;
 
     const Schema& get_schema() const override;
+
+    bool is_blocking() const override;
 };
 
 class FilterOperator : public IOperator {
@@ -67,11 +69,14 @@ public:
 
     const Schema& get_schema() const override;
 
+    bool is_blocking() const override;
+
 private:
     static void apply_mask(Batch* batch, std::vector<uint8_t>& mask);
 };
 
 class GroupByAggOperator : public IOperator {
+public:
     struct GroupKey {
         absl::InlinedVector<int64_t, 2> values;
 
@@ -131,6 +136,8 @@ public:
     Batch* next() override;
 
     const Schema& get_schema() const override;
+
+    bool is_blocking() const override;
 };
 
 class OrderByOperator : public IOperator {
@@ -149,30 +156,64 @@ private:
     std::unique_ptr<IOperator> child_;
     std::vector<OrderSpec> order_specs_;
     Batch accumulated_batch_;
-    Batch result_batch_;
     size_t global_offset_ = 0;
     bool done_ = false;
 
 public:
-    OrderByOperator(std::unique_ptr<IOperator> child, std::vector<OrderSpec> order_specs);
+    OrderByOperator(std::unique_ptr<IOperator>&& child, std::vector<OrderSpec> order_specs);
 
     Batch* next() override;
 
     const Schema& get_schema() const override;
+
+    bool is_blocking() const override;
 };
 
 class LimitOperator : public IOperator {
 private:
     std::unique_ptr<IOperator> child_;
-    size_t len_;
+    size_t limit_;
     size_t offset_;
 
 public:
-    LimitOperator(std::unique_ptr<IOperator> child, size_t len, size_t offset = 0);
+    LimitOperator(std::unique_ptr<IOperator>&& child, size_t len, size_t offset = 0);
 
     Batch* next() override;
 
     const Schema& get_schema() const override;
+
+    bool is_blocking() const override;
+};
+
+class TopKOperator : public IOperator {
+public:
+    enum class OrderDirection {
+        Desc,
+        Asc,
+    };
+
+    struct OrderSpec {
+        std::unique_ptr<IValueExpression> expr;
+        OrderDirection dir;
+    };
+
+private:
+    std::unique_ptr<IOperator> child_;
+    std::vector<OrderSpec> order_specs_;
+    Batch accumulated_batch_;
+    bool done_ = false;
+    size_t limit_;
+    size_t offset_;
+
+public:
+    TopKOperator(std::unique_ptr<IOperator>&& child, std::vector<OrderSpec> order_specs, size_t len,
+                 size_t offset = 0);
+
+    Batch* next() override;
+
+    const Schema& get_schema() const override;
+
+    bool is_blocking() const override;
 };
 
 class HavingOperator : public IOperator {
@@ -181,11 +222,13 @@ private:
     std::unique_ptr<IFilterExpression> filter_;
 
 public:
-    HavingOperator(std::unique_ptr<IOperator> child, std::unique_ptr<IFilterExpression> filter);
+    HavingOperator(std::unique_ptr<IOperator>&& child, std::unique_ptr<IFilterExpression> filter);
 
     Batch* next() override;
 
     const Schema& get_schema() const override;
+
+    bool is_blocking() const override;
 
 private:
     static void apply_mask(Batch* batch, std::vector<uint8_t>& mask);
