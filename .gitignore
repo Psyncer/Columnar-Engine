@@ -17,5 +17,8 @@ hits_100k.csv
 Perf\ logs/
 small/
 big/
-tests/
+tests/big.columnar
+tests/hits_sample.csv
+tests/hits.csv
+tests/sample.columnar
 scripts/
