@@ -16,10 +16,10 @@ namespace columnar {
 CsvReader CsvReader::open_csv(const std::string& path_to_data, const std::string& path_to_schema,
                               char delimiter) {
     std::ifstream data_file(path_to_data, std::ios::binary);
-    ASS(data_file.is_open(), "file not found");  // or ask for input again?
+    ASS(data_file.is_open(), "file not found");
 
     std::ifstream schema_file(path_to_schema, std::ios::binary);
-    ASS(schema_file.is_open(), "file not found");  // or ask for input again?
+    ASS(schema_file.is_open(), "file not found");
 
     CsvReader csv_reader(std::move(data_file), std::move(schema_file), delimiter);
 

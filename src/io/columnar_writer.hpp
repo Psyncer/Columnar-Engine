@@ -23,17 +23,17 @@ private:
 public:
     static ColumnarWriter open_output(const std::string& path_to_output, const Schema& schema);
 
-    void write_batch(const ConversionBatch& batch);  // throws
+    void write_batch(const ConversionBatch& batch);
 
     void write_metadata();
 
 private:
     ColumnarWriter(std::ofstream&& file, const Schema& schema);
 
-    void flush();  // throws
+    void flush();
 
     template <typename T>
-    void write_column(const T& column) {  // throws
+    void write_column(const T& column) {
         size_t bytes = column.size() * sizeof(typename T::value_type);
         if (buffer_.size() + bytes >= buffer_.capacity()) {
             flush();
@@ -44,7 +44,7 @@ private:
     }
 
     template <typename T>
-    void write_int(T value) {  // throws
+    void write_int(T value) {
         if (std::endian::native == std::endian::big) {
             value = std::byteswap(value);
         }
@@ -59,7 +59,7 @@ private:
         offset_ += sizeof(value);
     }
 
-    void write_string(const std::string& str, int64_t len);  // throws
+    void write_string(const std::string& str, int64_t len);
 };
 
 }  // namespace columnar

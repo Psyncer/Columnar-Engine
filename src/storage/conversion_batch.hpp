@@ -19,17 +19,17 @@ struct BatchColumn {
 
     template <typename T>
     std::vector<T>& get() {
-        return std::get<std::vector<T>>(data);  // throws, get_if?
+        return std::get<std::vector<T>>(data);
     }
 
     template <typename T>
     const std::vector<T>& get() const {
-        return std::get<std::vector<T>>(data);  // throws, get_if?
+        return std::get<std::vector<T>>(data);
     }
 
     template <typename T>
     void append(const T& value) {
-        std::get<std::vector<T>>(data).push_back(value);  // throws, get_if?
+        std::get<std::vector<T>>(data).push_back(value);
     }
 };
 
@@ -41,16 +41,16 @@ private:
     size_t row_count_ = 0;
 
 public:
-    ConversionBatch(const Schema& schema);  // throws
+    ConversionBatch(const Schema& schema);
 
-    void add_row(const std::vector<std::string>& row);  // throws
+    void add_row(const std::vector<std::string>& row);
 
-    const BatchColumn& get_column(size_t idx) const;  // throws
+    const BatchColumn& get_column(size_t idx) const;
 
     template <typename T>
     void append_column(size_t idx, T value) {
         ASS(idx < columns_.size(), "index out of range");
-        columns_[idx].append<T>(value);  // throws
+        columns_[idx].append<T>(value);
     }
 
     void set_row_count(size_t num);
@@ -59,12 +59,12 @@ public:
 
     bool is_full() const;
 
-    void clear();  // throws
+    void clear();
 
 private:
     template <typename T, typename ParseFn>
     static void parse_and_append(BatchColumn& column, const std::string& token,
-                                 ParseFn parse_fn);  // throws
+                                 ParseFn parse_fn);
 };
 
 }  // namespace columnar

@@ -111,7 +111,6 @@ void ConversionBatch::set_row_count(size_t num) {
 }
 
 size_t ConversionBatch::get_row_count() const {
-    // maybe assert row_count_ invariant here
     return row_count_;
 }
 

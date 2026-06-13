@@ -17,7 +17,6 @@ AggSpec::AggSpec(AggType t, const std::string& n, std::unique_ptr<IValueExpressi
 
 template <>
 void dispatch_finalization<const std::string&>(Column& column, const std::string& value) {
-    // ASS string type
     column.push_string(value);
 }
 

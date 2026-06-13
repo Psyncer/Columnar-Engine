@@ -21,18 +21,18 @@ public:
     static CsvReader open_csv(const std::string& path_to_data, const std::string& path_to_schema,
                               char delimiter = ',');
 
-    Schema parse_schema();  // throws
+    Schema parse_schema();
 
-    bool parse_row(const Schema& schema, std::vector<std::string>& row);  // throws
+    bool parse_row(const Schema& schema, std::vector<std::string>& row);
 
 private:
     CsvReader(std::ifstream&& data_file, std::ifstream&& schema_file, char delimiter);
 
-    bool fill();  // throws
+    bool fill();
 
-    void refill();  // throws
+    void refill();
 
-    bool increment_pos(size_t n);  // throws
+    bool increment_pos(size_t n);
 };
 
 }  // namespace columnar
