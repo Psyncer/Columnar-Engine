@@ -66,9 +66,7 @@ Add::Add(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpress
 
 Column Add::evaluate(const Batch& batch) {
     Column left(left_->evaluate(batch));
-    Column right(right_->evaluate(batch));  // assuming literal int64_t
-
-    // ASS types and sizes
+    Column right(right_->evaluate(batch));
 
     Column column(left.type());
     type_ = column.type();
@@ -124,9 +122,7 @@ Sub::Sub(std::unique_ptr<IValueExpression>&& left, std::unique_ptr<IValueExpress
 
 Column Sub::evaluate(const Batch& batch) {
     Column left(left_->evaluate(batch));
-    Column right(right_->evaluate(batch));  // assuming literal int64_t
-
-    // ASS types and sizes
+    Column right(right_->evaluate(batch));
 
     Column column(left.type());
     type_ = column.type();
@@ -182,7 +178,6 @@ Extract::Extract(std::unique_ptr<IValueExpression>&& target, ExtractSpec spec)
 
 Column Extract::evaluate(const Batch& batch) {
     Column column(target_->evaluate(batch));
-    // ASS timestamp type
     Column col(Type::Int64);
     type_ = col.type();
 
@@ -216,8 +211,6 @@ StrLen::StrLen(std::unique_ptr<IValueExpression>&& target) : target_(std::move(t
 
 Column StrLen::evaluate(const Batch& batch) {
     Column column(target_->evaluate(batch));
-    // ASS string column
-
     Column col(Type::Int32);
     type_ = col.type();
 
@@ -238,8 +231,6 @@ DateTrunc::DateTrunc(std::unique_ptr<IValueExpression>&& target, TruncSpec spec)
 
 Column DateTrunc::evaluate(const Batch& batch) {
     Column column(target_->evaluate(batch));
-    // ASS timestamp column
-
     Column col(Type::Timestamp);
     type_ = col.type();
 
@@ -275,8 +266,6 @@ RegexpReplace::RegexpReplace(std::unique_ptr<IValueExpression>&& target, const s
 
 Column RegexpReplace::evaluate(const Batch& batch) {
     Column column(target_->evaluate(batch));
-    // ASS string column
-
     Column col(Type::String);
     type_ = col.type();
     std::string str;
@@ -383,8 +372,6 @@ Compare::Compare(std::unique_ptr<IValueExpression>&& left,
 void Compare::evaluate(const Batch& batch, std::vector<uint8_t>& mask) {
     Column left(left_->evaluate(batch));
     Column right(right_->evaluate(batch));
-
-    // ASS same type for left and right
 
     switch (left.type()) {
     case Type::Int16:

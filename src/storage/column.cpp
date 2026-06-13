@@ -5,9 +5,9 @@
 #include <string>
 #include <vector>
 
-#include "tools/assert.hpp"
 #include "src/storage/column.hpp"
 #include "src/storage/data_type.hpp"
+#include "tools/assert.hpp"
 
 namespace columnar {
 
@@ -85,13 +85,13 @@ Column::Column(Type type, int64_t literal) : type_(type) {
         break;
     }
     default:
-        // error
-        break;
+        std::cerr << "Wrong type" << "\n  at " << __FILE__ << ":" << __LINE__ << "\n  in "
+                  << __func__ << std::endl;
+        std::abort();
     }
 }
 
 Column::Column(Type type, std::string str) : type_(type) {
-    // ASS string type
     allocate_string();
     char* p = static_cast<char*>(data_);
     int32_t pos = 0;

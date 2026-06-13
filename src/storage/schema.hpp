@@ -37,7 +37,7 @@ public:
 
     bool contains(const std::string& name) const;
 
-    void add_column(const std::string& name, Type type);  // throws
+    void add_column(const std::string& name, Type type);
 };
 
 }  // namespace columnar

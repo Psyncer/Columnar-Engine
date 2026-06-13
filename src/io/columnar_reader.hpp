@@ -35,14 +35,14 @@ public:
 
     ColumnarReader& operator=(ColumnarReader&& other) noexcept;
 
-    void fill_batch(Batch& batch);  // throws
+    void fill_batch(Batch& batch);
 
     const Schema& schema() const;
 
 private:
     ColumnarReader(int fd);
 
-    void read_metadata();  // throws
+    void read_metadata();
 
     template <typename T>
     T read_int() {
@@ -55,7 +55,7 @@ private:
         return value;
     }
 
-    std::string read_string();  // throws
+    std::string read_string();
 
     int64_t get_meta_start() const;
 
